@@ -6,20 +6,20 @@
   <title>Cast Receiver (Shaka)</title>
 
   <!--
-    Custom Web Receiver for CastTry — drives Shaka Player DIRECTLY (like our TV-browser
-    players) instead of relying on CAF's built-in useShakaForHls, which won't combine
-    DEMUXED multi-audio HLS (separate audio-group renditions). Verified on-device:
-      muxed HLS  → CAF built-in plays it
-      demuxed HLS→ CAF built-in fails (LOAD_FAILED / timeout)  ← this file fixes that
-    Hybrid routing: Shaka for .m3u8/.mpd, native <video> for progressive (mp4/webm/…).
-    Registered against app id 9BDEDD6A. Hosted on GitHub Pages (HTTPS).
+    Custom Web Receiver for CastTry — rides CAF's BUILT-IN player (Shaka under the
+    hood), exactly like the Bitmovin / Radiant production receivers. No skipPlayersLoad,
+    no external engine: CAF's built-in is what mints the MediaSession + reports status +
+    handles EDIT_TRACKS natively. useShakaForHls forces the Shaka path so DEMUXED
+    multi-audio HLS is muxed correctly. Pair with LocalVideoServer's /hls/<token>/ route
+    so the master arrives as a real ".m3u8" URL with relative children (CAF classifies it
+    as HLS → Shaka). Registered against app id 9BDEDD6A; hosted on GitHub Pages (HTTPS).
   -->
-  <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/shaka-player@4.11/dist/shaka-player.compiled.js"></script>
+  <!-- PREVIEW SDK (newest Shaka 4.15.x + useShakaForHls default) — testing only; revert to /v3/ for production. -->
+  <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/preview/cast_receiver_framework.js"></script>
 
   <style>
     html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
-    #vid { position: absolute; inset: 0; width: 100%; height: 100%; background: #000; object-fit: contain; }
+    cast-media-player { position: absolute; inset: 0; width: 100%; height: 100%; }
     #dbg {
       position: absolute; left: 0; top: 0; z-index: 9999;
       max-width: 62vw; max-height: 100vh; box-sizing: border-box;
@@ -36,7 +36,7 @@
   </style>
 </head>
 <body>
-  <video id="vid" autoplay playsinline></video>
+  <cast-media-player></cast-media-player>
   <pre id="dbg"><span class="hd">Cast Receiver — booting…</span></pre>
 
   <script>
@@ -44,9 +44,7 @@
     'use strict';
     const NS = 'urn:x-cast:com.casttry.cast';
     const dbgEl = document.getElementById('dbg');
-    const video = document.getElementById('vid');
     const lines = []; let statusLine = ''; let debugOn = true;
-
     function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
     function render(){
       dbgEl.className = debugOn ? '' : 'off';
@@ -62,137 +60,41 @@
 
     const context = cast.framework.CastReceiverContext.getInstance();
     const pm = context.getPlayerManager();
-    const M = cast.framework.messages, MT = M.MessageType, TT = M.TrackType, TX = M.TextTrackType;
+    const M = cast.framework.messages, E = cast.framework.events.EventType;
     function toSenders(o){ try { context.sendCustomMessage(NS, undefined, o); } catch(e){} }
     try { context.setLoggerLevel(cast.framework.LoggerLevel.DEBUG); } catch(e){}
 
-    // ── Shaka ────────────────────────────────────────────────────────────────
-    let player = null, attached = false, usingShaka = false;
-    let audioList = [], textList = [];        // discovered tracks → CAF trackId mapping
-
-    const shakaOk = (typeof shaka !== 'undefined') && shaka.Player && shaka.Player.isBrowserSupported && shaka.Player.isBrowserSupported();
-    log(shakaOk ? ('Shaka ' + shaka.Player.version + ' available') : 'Shaka NOT available — native only', shakaOk ? null : 'err');
-
-    async function ensurePlayer(){
-      if (!player){ shaka.polyfill.installAll(); player = new shaka.Player();
-        player.addEventListener('error', e => {
-          const er = e.detail || {}; log('Shaka error '+er.code+' '+(er.data&&er.data[0]), 'err');
-          toSenders({ type:'error', shaka: er.code, detail: String(er.data&&er.data[0]) });
-        });
-      }
-      if (!attached){ await player.attach(video); attached = true; }
-      return player;
-    }
-    function isAdaptive(url, ct){
-      ct = (ct||'').toLowerCase(); url = url||'';
-      return ct.indexOf('mpegurl')>=0 || ct.indexOf('m3u8')>=0 || ct.indexOf('dash')>=0 ||
-             ct.indexOf('mpd')>=0 || /\.m3u8|\.mpd/i.test(url);
-    }
-    function mimeFor(url, ct){
-      ct = (ct||'').toLowerCase();
-      if (ct.indexOf('mpegurl')>=0 || /\.m3u8/i.test(url)) return 'application/x-mpegurl';
-      if (ct.indexOf('dash')>=0 || ct.indexOf('mpd')>=0 || /\.mpd/i.test(url)) return 'application/dash+xml';
-      return undefined;
-    }
-
-    function discoverTracks(){
-      audioList = []; textList = [];
+    // LOAD: just log + return the request — CAF's built-in player handles playback
+    // (Shaka for HLS), creates the media session, and reports status to the sender.
+    pm.setMessageInterceptor(M.MessageType.LOAD, req => {
       try {
-        const vs = player.getVariantTracks() || [];
-        const seen = new Set();
-        for (const v of vs){
-          const key = (v.language||'und') + '|' + (v.channelsCount||0) + '|' + (v.audioRoles||[]).join(',');
-          if (seen.has(key)) continue; seen.add(key);
-          audioList.push({ lang: v.language||'und', ch: v.channelsCount||0,
-                           label: v.label || v.originalAudioId || v.language || ('Audio '+(audioList.length+1)) });
-        }
-        const ts = player.getTextTracks() || [];
-        const seenT = new Set();
-        for (const t of ts){
-          const key = (t.language||'und') + '|' + (t.label||'');
-          if (seenT.has(key)) continue; seenT.add(key);
-          textList.push({ lang: t.language||'und', label: t.label || t.language || ('Sub '+(textList.length+1)) });
-        }
-      } catch(e){ log('discoverTracks err '+e, 'err'); }
-      log('tracks: audio=[' + audioList.map(a=>a.lang+'/'+a.ch+'ch').join(', ') +
-          '] text=[' + textList.map(t=>t.lang).join(', ') + ']');
-    }
-    function buildCafTracks(){
-      const arr = []; let id = 1;
-      audioList.forEach(a => { const tk = new M.Track(id, TT.AUDIO); tk.language=a.lang;
-        tk.name=a.label+(a.ch?(' ('+a.ch+'ch)'):''); a.tid=id; arr.push(tk); id++; });
-      textList.forEach(t => { const tk = new M.Track(id, TT.TEXT); tk.language=t.lang;
-        tk.name=t.label; tk.subtype=TX.SUBTITLES; t.tid=id; arr.push(tk); id++; });
-      return arr;
-    }
-
-    // ── LOAD: route to Shaka (adaptive) or native <video> (progressive) ───────
-    pm.setMessageInterceptor(MT.LOAD, async (req) => {
-      try {
-        const m = req.media || {}; const url = m.contentUrl || m.contentId || m.entity || '';
-        const ct = m.contentType || '';
-        log('LOAD ' + ct + '  ' + url);
-        const startAt = (typeof req.currentTime === 'number' && req.currentTime > 0) ? req.currentTime : null;
-
-        if (shakaOk && isAdaptive(url, ct)) {
-          usingShaka = true; await ensurePlayer();
-          try { await player.unload(); } catch(e){}
-          await player.load(url, startAt, mimeFor(url, ct));
-          discoverTracks();
-          const tks = buildCafTracks();
-          if (tks.length) { m.tracks = tks; m.duration = video.duration || m.duration; }
-          // honour requested audio/text if the sender already asked for some
-          if (req.activeTrackIds && req.activeTrackIds.length) applyTracks(req.activeTrackIds);
-        } else {
-          usingShaka = false;
-          if (player && attached) { try { await player.unload(); } catch(e){} }
-          video.src = url; if (startAt) { try { video.currentTime = startAt; } catch(e){} }
-        }
-        try { await video.play(); } catch(e){}
-        log('playing (' + (usingShaka?'shaka':'native') + ')');
-        return req;
-      } catch (e) {
-        log('LOAD failed: ' + (e && (e.message||e.code) || e), 'err');
-        toSenders({ type:'error', reason: String(e && (e.message||e.code) || e) });
-        throw e;   // → CAF reports LOAD_FAILED to the sender
-      }
-    });
-
-    function applyTracks(ids){
-      if (!usingShaka || !player) return;
-      try {
-        const a = audioList.find(x => ids.indexOf(x.tid) >= 0);
-        if (a) { player.selectAudioLanguage(a.lang, undefined, a.ch || undefined); log(' → audio '+a.lang+'/'+a.ch+'ch'); }
-        const t = textList.find(x => ids.indexOf(x.tid) >= 0);
-        if (t) { player.selectTextLanguage(t.lang); player.setTextTrackVisibility(true); log(' → text '+t.lang); }
-        else   { player.setTextTrackVisibility(false); }
-      } catch(e){ log('applyTracks err '+e, 'err'); }
-    }
-    pm.setMessageInterceptor(MT.EDIT_TRACKS_INFO, (req) => {
-      const ids = req.activeTrackIds || [];
-      log('EDIT_TRACKS active=[' + ids.join(',') + ']');
-      applyTracks(ids);
+        const m = req.media || {};
+        log('LOAD ' + (m.contentType || '?') + '  ' + (m.contentId || m.contentUrl || ''));
+        if (req.activeTrackIds && req.activeTrackIds.length) log('  activeTrackIds=[' + req.activeTrackIds.join(',') + ']');
+      } catch(e){}
       return req;
     });
 
-    // ── Transport (we own the element, so apply directly) ─────────────────────
-    pm.setMessageInterceptor(MT.PLAY,  r => { video.play().catch(()=>{}); return r; });
-    pm.setMessageInterceptor(MT.PAUSE, r => { video.pause(); return r; });
-    pm.setMessageInterceptor(MT.SEEK,  r => { if (typeof r.currentTime === 'number') { try { video.currentTime = r.currentTime; } catch(e){} } return r; });
-    pm.setMessageInterceptor(MT.STOP,  r => { try { video.pause(); } catch(e){} if (player) player.unload().catch(()=>{}); return r; });
-
-    function curAudio(){ try { return (player.getVariantTracks()||[]).find(v=>v.active); } catch(e){ return null; } }
-    function updateOverlay(){
-      const a = usingShaka ? curAudio() : null;
-      statusLine = 'state=' + (video.paused?'PAUSED':'PLAYING') + '  t=' + Math.round(video.currentTime||0) + 's' +
-        (a ? ('  audio=' + (a.language||'und') + '/' + (a.channelsCount||0) + 'ch') : '');
+    pm.addEventListener(E.ERROR, e => {
+      log('ERROR detailedCode=' + e.detailedErrorCode + ' ' + (e.error && (e.error.reason || e.error.type) || ''), 'err');
+      toSenders({ type:'error', detailedErrorCode: e.detailedErrorCode, reason: e.error && (e.error.reason || e.error.type) });
+    });
+    pm.addEventListener(E.PLAYER_LOAD_COMPLETE, () => {
+      const info = pm.getMediaInformation() || {}; const tr = info.tracks || [];
+      log('LOAD complete — tracks: ' + (tr.length
+        ? tr.map(t => '#'+t.trackId+' '+t.type+' '+(t.language||'')+(t.name?(" '"+t.name+"'"):'')).join('  ') : '(none)'));
+    });
+    function upd(){
+      const ai = pm.getActiveTrackIds ? (pm.getActiveTrackIds() || []) : [];
+      statusLine = 'state=' + pm.getPlayerState() + '  t=' + Math.round(pm.getCurrentTimeSec()||0) + 's  active=[' + ai.join(',') + ']';
       render();
     }
-    ['playing','pause','seeked','timeupdate','ended','loadedmetadata','waiting'].forEach(ev =>
-      video.addEventListener(ev, () => { try { pm.broadcastStatus(true); } catch(e){} updateOverlay(); }));
-    video.addEventListener('error', () => log('video element error ' + (video.error && video.error.code), 'err'));
+    [E.PLAYING, E.PAUSE, E.MEDIA_STATUS, E.TIME_UPDATE, E.SEEKED].forEach(ev => { try { pm.addEventListener(ev, upd); } catch(e){} });
+    pm.addEventListener(E.TRACKS_CHANGED, () => {
+      const ai = pm.getActiveTrackIds ? (pm.getActiveTrackIds() || []) : [];
+      log('TRACKS_CHANGED → active=[' + ai.join(',') + ']');
+    });
 
-    // ── Capability probe (receiver-side device-capability feature) ────────────
     function probeCaps(){
       const want = [['H.264 1080p','video/mp4','avc1.640028',1920,1080],['H.264 4K','video/mp4','avc1.640033',3840,2160],
         ['HEVC','video/mp4','hev1.1.6.L93.B0',1920,1080],['VP9','video/webm','vp9',1920,1080],['AV1','video/mp4','av01.0.04M.08',1920,1080],
@@ -209,13 +111,12 @@
       if (d.type==='getCaps') probeCaps();
     });
 
-    // ── Start (custom player: skip CAF's built-in players) ────────────────────
     const options = new cast.framework.CastReceiverOptions();
-    options.skipPlayersLoad = true;       // we drive Shaka / the <video> ourselves
-    options.disableIdleTimeout = true;    // stay alive while testing
+    options.useShakaForHls = true;      // force Shaka for HLS → muxes demuxed multi-audio
+    options.maxInactivity  = 3600;      // stay alive while testing
     options.customNamespaces = {}; options.customNamespaces[NS] = cast.framework.system.MessageType.JSON;
-    context.addEventListener(cast.framework.system.EventType.READY, () => { log('READY — custom Shaka player', 'hd'); probeCaps(); });
-    log('starting context…');
+    context.addEventListener(cast.framework.system.EventType.READY, () => { log('READY — CAF built-in (preview SDK) + useShakaForHls', 'hd'); probeCaps(); });
+    log('build: caf-builtin-preview — starting context…');
     context.start(options);
   })();
   </script>
