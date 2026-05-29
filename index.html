@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Cast Receiver (Shaka)</title>
+
+  <!--
+    Custom Shaka Web Receiver for CastTry.
+    Hosted on GitHub Pages (HTTPS); registered against app id 9BDEDD6A.
+
+    Why this exists: the Default Media Receiver (CC1AD845) can't switch EMBEDDED
+    mp4/mkv audio/subtitle tracks and can't mux DEMUXED multi-audio HLS. A custom
+    receiver running Shaka does both. This page forces Shaka for HLS and exposes
+    an on-TV debug overlay + a diagnostics namespace back to the C# sender.
+
+    Protocol-relative SDK URL so it loads over whatever scheme serves this page.
+    To try the pre-release SDK, swap to:
+      //www.gstatic.com/cast/sdk/libs/caf_receiver/preview/cast_receiver_framework.js
+  -->
+  <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
+
+  <style>
+    html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+    cast-media-player { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+    /* On-TV debug overlay — readable from the couch, capped so it never floods. */
+    #dbg {
+      position: absolute; left: 0; top: 0; z-index: 9999;
+      max-width: 60vw; max-height: 100vh; box-sizing: border-box;
+      padding: 12px 16px; margin: 0;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 1.6vh; line-height: 1.45;
+      color: #b8f0c0; background: rgba(0,0,0,.55);
+      white-space: pre-wrap; word-break: break-word;
+      pointer-events: none;
+    }
+    #dbg .hd  { color: #7fd0ff; font-weight: bold; }
+    #dbg .st  { color: #ffe08a; }
+    #dbg .err { color: #ff8a8a; }
+    #dbg.off  { display: none; }
+  </style>
+</head>
+<body>
+  <cast-media-player></cast-media-player>
+  <pre id="dbg"><span class="hd">Cast Receiver — booting…</span></pre>
+
+  <script>
+  (function () {
+    'use strict';
+
+    const NS = 'urn:x-cast:com.casttry.cast';      // diagnostics channel to/from the C# sender
+    const dbgEl = document.getElementById('dbg');
+    const lines = [];
+    let   statusLine = '';
+    let   debugOn = true;
+
+    function render() {
+      dbgEl.className = debugOn ? '' : 'off';
+      dbgEl.innerHTML =
+        '<span class="hd">Cast Receiver (Shaka)</span>\n' +
+        (statusLine ? '<span class="st">' + statusLine + '</span>\n' : '') +
+        lines.join('\n');
+    }
+    function log(msg, cls) {
+      const t = new Date().toISOString().substr(11, 8);
+      lines.push((cls ? '<span class="' + cls + '">' : '<span>') + t + '  ' + esc(msg) + '</span>');
+      while (lines.length > 22) lines.shift();
+      render();
+      try { console.log('[Receiver] ' + msg); } catch (e) {}
+    }
+    function esc(s) {
+      return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    const context = cast.framework.CastReceiverContext.getInstance();
+    const playerManager = context.getPlayerManager();
+
+    // Verbose CAF logging (visible in chrome://inspect remote debugger).
+    try { context.setLoggerLevel(cast.framework.LoggerLevel.DEBUG); } catch (e) {}
+
+    // ── Relay a JSON message back to all connected senders ──────────────────
+    function toSenders(obj) {
+      try { context.sendCustomMessage(NS, undefined, obj); } catch (e) {}
+    }
+
+    // ── Codec capability probe (canDisplayType) → on-TV + back to sender ─────
+    // This is the receiver-side half of the planned per-device CapabilityProfile:
+    // ask the device which codecs/resolutions it can actually decode.
+    function probeCapabilities() {
+      const want = [
+        ['H.264 1080p', 'video/mp4', 'avc1.640028', 1920, 1080],
+        ['H.264 4K',    'video/mp4', 'avc1.640033', 3840, 2160],
+        ['HEVC',        'video/mp4', 'hev1.1.6.L93.B0', 1920, 1080],
+        ['VP9',         'video/webm','vp9', 1920, 1080],
+        ['AV1',         'video/mp4', 'av01.0.04M.08', 1920, 1080],
+        ['AAC-LC',      'audio/mp4', 'mp4a.40.2'],
+        ['AC-3',        'audio/mp4', 'ac-3'],
+        ['E-AC-3',      'audio/mp4', 'ec-3'],
+        ['Opus',        'audio/webm','opus'],
+        ['FLAC',        'audio/mp4', 'flac']
+      ];
+      const caps = {};
+      for (const [name, mime, codecs, w, h] of want) {
+        let ok = false;
+        try { ok = context.canDisplayType(mime, codecs, w || undefined, h || undefined); } catch (e) {}
+        caps[name] = ok;
+      }
+      const yes = Object.keys(caps).filter(k => caps[k]);
+      log('caps: ' + yes.join(', '));
+
+      let devInfo = null;
+      try { if (context.getDeviceCapabilities) devInfo = context.getDeviceCapabilities(); } catch (e) {}
+      // New (Apr-2026) CastReceiverContext.getDeviceInformation(), if present.
+      let devMore = null;
+      try { if (context.getDeviceInformation) devMore = context.getDeviceInformation(); } catch (e) {}
+
+      toSenders({ type: 'capabilities', codecs: caps, device: devInfo, deviceInfo: devMore });
+    }
+
+    // ── Sender → receiver control (e.g. toggle the overlay, re-probe caps) ───
+    context.addCustomMessageListener(NS, function (ev) {
+      const d = ev.data || {};
+      log('msg ◄ ' + JSON.stringify(d));
+      if (d.type === 'debug') { debugOn = !!d.on; render(); }
+      if (d.type === 'getCaps') probeCapabilities();
+    });
+
+    // ── LOAD interceptor: log what we were asked to play, force Shaka for HLS ─
+    playerManager.setMessageInterceptor(cast.framework.messages.MessageType.LOAD, function (req) {
+      try {
+        const m = req.media || {};
+        log('LOAD ' + (m.contentType || '?') + '  ' + (m.contentId || m.contentUrl || ''));
+        const tr = m.tracks || [];
+        if (tr.length) log('  declared tracks: ' + tr.map(t => '#' + t.trackId + ' ' + t.type + ' ' + (t.language || '')).join('  '));
+        if (req.activeTrackIds && req.activeTrackIds.length) log('  activeTrackIds: [' + req.activeTrackIds.join(',') + ']');
+      } catch (e) {}
+      return req;   // playback config (useShakaForHls) is set globally below
+    });
+
+    // ── Player events → overlay + sender ─────────────────────────────────────
+    const E = cast.framework.events.EventType;
+    playerManager.addEventListener(E.ERROR, function (e) {
+      log('ERROR detailedCode=' + e.detailedErrorCode + ' reason=' + (e.error && (e.error.reason || e.error.type)), 'err');
+      toSenders({ type: 'error', detailedErrorCode: e.detailedErrorCode, reason: e.error && (e.error.reason || e.error.type) });
+    });
+    playerManager.addEventListener(E.PLAYER_LOAD_COMPLETE, function () {
+      const info = playerManager.getMediaInformation() || {};
+      const tracks = (info.tracks || []);
+      log('LOAD complete — receiver tracks: ' + (tracks.length
+          ? tracks.map(t => '#' + t.trackId + ' ' + t.type + ' ' + (t.language || '') + (t.name ? " '" + t.name + "'" : '')).join('  ')
+          : '(none)'));
+    });
+    function updateStatus() {
+      const st = playerManager.getPlayerState();
+      const t  = Math.round(playerManager.getCurrentTimeSec() || 0);
+      const ai = playerManager.getActiveTrackIds ? (playerManager.getActiveTrackIds() || []) : [];
+      statusLine = 'state=' + st + '  t=' + t + 's  active=[' + ai.join(',') + ']';
+      render();
+    }
+    [E.PLAYING, E.PAUSE, E.MEDIA_STATUS, E.MEDIA_FINISHED, E.TRACKS_CHANGED, E.SEEKED].forEach(function (evt) {
+      try { playerManager.addEventListener(evt, updateStatus); } catch (e) {}
+    });
+    try {
+      playerManager.addEventListener(E.TRACKS_CHANGED, function () {
+        const ai = playerManager.getActiveTrackIds ? (playerManager.getActiveTrackIds() || []) : [];
+        log('TRACKS_CHANGED → active=[' + ai.join(',') + ']');
+      });
+    } catch (e) {}
+
+    // ── Start ────────────────────────────────────────────────────────────────
+    const options = new cast.framework.CastReceiverOptions();
+    options.useShakaForHls = true;            // ← the whole point: Shaka demuxes/muxes HLS multi-audio
+    options.maxInactivity  = 3600;            // keep the session alive while we test (default closes fast w/o media)
+    options.customNamespaces = {};
+    options.customNamespaces[NS] = cast.framework.system.MessageType.JSON;
+
+    context.addEventListener(cast.framework.system.EventType.READY, function () {
+      log('READY — useShakaForHls=true', 'hd');
+      probeCapabilities();
+    });
+
+    log('starting context…');
+    context.start(options);
+  })();
+  </script>
+</body>
+</html>
