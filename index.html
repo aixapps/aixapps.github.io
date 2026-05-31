@@ -9,16 +9,21 @@
     Custom Web Receiver for CastTry — CAF built-in player + Shaka (useShakaForHls) so demuxed
     multi-audio HLS plays + switches. Registered against app id 9BDEDD6A; hosted on GitHub Pages.
 
-    SDK: PREVIEW (experiment 2026-05-31). Stable v3 + useShakaForHls=true FAILED demuxed
-    multi-audio HLS on the Ultra (detailedErrorCode 905 LOAD_FAILED / 321) — the demuxed-HLS
-    Shaka path appears to need the pre-release receiver build. NOTE: Google rotates/deprecates
-    /preview/, so this can break without warning; if it does, swap back to /v3/.
+    SDK: STABLE v3. EXPERIMENT 2026-05-31 result — demuxed multi-audio HLS FAILED to LOAD on
+    the Ultra with BOTH this v3 build (detailedErrorCode 905/321) AND the /preview/ build
+    (310/905 — HLS playlist/network LOAD_FAILED). So it is NOT the SDK channel. The SAME
+    cinderella-2aud-2sub-hls manifest plays in LG's in-browser Shaka served via /file?path=,
+    so the suspect is the Cast serving route (the /hls/<token>/ route may not rewrite demuxed
+    EXT-X-MEDIA audio/sub sub-playlist URIs) or HTTPS-receiver→HTTP-LAN mixed-content blocking
+    Shaka's segment fetches. Custom receiver stays OFF (UseCustomShakaReceiver=false); demuxed
+    HLS is a Phase-5 transcode-to-muxed item. To resume experiments here, also try routing the
+    receiver via /file?path= instead of /hls/ (the route LG's Shaka plays).
 
     DEBUG build: a small on-TV overlay (top-left) shows build tag / READY / LOAD / errors / state +
     a short scrolling log so hardware tests aren't blind. Set DEBUG=false (or strip #dbg) for a
     clean production look once demuxed HLS is confirmed on v3.
   -->
-  <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/preview/cast_receiver_framework.js"></script>
+  <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
 
   <style>
     html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
@@ -51,7 +56,7 @@
   (function () {
     'use strict';
     const DEBUG = true;                         // ← on-TV overlay; set false for production
-    const BUILD = 'preview-debug-2026-05-31';
+    const BUILD = 'v3-debug-2026-05-30';
     const NS = 'urn:x-cast:com.casttry.cast';
     const idleEl = document.getElementById('idle');
     const dbgEl  = document.getElementById('dbg');
