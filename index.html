@@ -9,15 +9,16 @@
     Custom Web Receiver for CastTry — CAF built-in player + Shaka (useShakaForHls) so demuxed
     multi-audio HLS plays + switches. Registered against app id 9BDEDD6A; hosted on GitHub Pages.
 
-    SDK: STABLE v3 (was the /preview/ build, which Google rotates/deprecates — a likely cause of
-    the receiver silently breaking). useShakaForHls is set explicitly, which engages Shaka-for-HLS
-    on v3 regardless of the rollout default.
+    SDK: PREVIEW (experiment 2026-05-31). Stable v3 + useShakaForHls=true FAILED demuxed
+    multi-audio HLS on the Ultra (detailedErrorCode 905 LOAD_FAILED / 321) — the demuxed-HLS
+    Shaka path appears to need the pre-release receiver build. NOTE: Google rotates/deprecates
+    /preview/, so this can break without warning; if it does, swap back to /v3/.
 
     DEBUG build: a small on-TV overlay (top-left) shows build tag / READY / LOAD / errors / state +
     a short scrolling log so hardware tests aren't blind. Set DEBUG=false (or strip #dbg) for a
     clean production look once demuxed HLS is confirmed on v3.
   -->
-  <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
+  <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/preview/cast_receiver_framework.js"></script>
 
   <style>
     html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
@@ -50,7 +51,7 @@
   (function () {
     'use strict';
     const DEBUG = true;                         // ← on-TV overlay; set false for production
-    const BUILD = 'v3-debug-2026-05-30';
+    const BUILD = 'preview-debug-2026-05-31';
     const NS = 'urn:x-cast:com.casttry.cast';
     const idleEl = document.getElementById('idle');
     const dbgEl  = document.getElementById('dbg');
