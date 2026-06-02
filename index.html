@@ -164,6 +164,11 @@
     }
     applyDbg();
 
+    // Paint the branded Idle screen IMMEDIATELY — before/independent of CAF's READY event. This
+    // covers the CAF <cast-media-player> default spinner and makes the page look right when the
+    // receiver URL is opened directly in a browser (CAF only fires READY when actually cast to).
+    showScreen('idle');
+
     // Guard: if the SDK script failed to load, cast.framework is undefined — surface it.
     if (typeof cast === 'undefined' || !cast.framework) {
       DEBUG = true; applyDbg();
