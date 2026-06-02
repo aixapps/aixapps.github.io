@@ -136,8 +136,13 @@
   <script>
   (function () {
     'use strict';
-    var DEBUG = true;                          // on-TV overlay; flip true (or send {type:'debug',on:true})
-    var BUILD = 'casting-receiver-v3-shaka4.15-2026-06-02';
+    var DEBUG = true;                           // on-TV overlay; set false for production
+    // DIAGNOSTIC: Shaka mode. 'off' = no Shaka at all (bare CAF) to test whether the receiver even
+    // LAUNCHES on this device; 'hls' = useShakaForHls with NO version pin; 'pinned' = production
+    // (useShakaForHls + shakaVersion 4.15.35). If 'off' reaches "READY ok" but 'pinned' hangs/crashes,
+    // the Shaka version injection is the culprit on this device. Set back to 'pinned' for production.
+    var SHAKA = 'off';
+    var BUILD = 'casting-receiver-DIAG-shaka_' + SHAKA + '-2026-06-02';
     var NS = 'urn:x-cast:com.casttry.cast';
 
     var dbgEl  = document.getElementById('dbg');
@@ -180,6 +185,7 @@
     var context = cast.framework.CastReceiverContext.getInstance();
     var pm = context.getPlayerManager();
     var M = cast.framework.messages, E = cast.framework.events.EventType, SYS = cast.framework.system;
+    dlog('context + playerManager ok');
     function toSenders(o) { try { context.sendCustomMessage(NS, undefined, o); } catch (e) {} }
     try { context.setLoggerLevel(cast.framework.LoggerLevel.DEBUG); } catch (e) {}
 
@@ -241,17 +247,24 @@
     });
 
     var options = new cast.framework.CastReceiverOptions();
-    options.useShakaForHls = true;
-    // Pin a recent Shaka for HLS. Without this the device uses its OLD bundled Shaka -> demuxed-HLS
-    // LOAD_FAILED (2026-05-31). Docs: pin >= 4.15.35.
-    options.shakaVersion = '4.15.35';
+    // Shaka config gated by the SHAKA diagnostic flag (see top). Production = 'pinned'.
+    if (SHAKA === 'pinned') {
+      options.useShakaForHls = true;
+      // Pin a recent Shaka for HLS. Without this the device uses its OLD bundled Shaka -> demuxed-HLS
+      // LOAD_FAILED (2026-05-31). Docs: pin >= 4.15.35.
+      options.shakaVersion = '4.15.35';
+    } else if (SHAKA === 'hls') {
+      options.useShakaForHls = true;            // let CAF choose the Shaka version (no pin)
+    }
+    // SHAKA === 'off' -> no Shaka options at all (bare CAF player)
     options.customNamespaces = {}; options.customNamespaces[NS] = SYS.MessageType.JSON;
     context.addEventListener(SYS.EventType.READY, function () {
       showScreen('idle'); updatePill();
-      dlog('READY (useShakaForHls=true, shaka=4.15.35)'); probeCaps();
+      dlog('READY ok (shaka=' + SHAKA + ')'); probeCaps();
     });
-    dlog('starting context…');
+    dlog('calling context.start (shaka=' + SHAKA + ')…');
     context.start(options);
+    dlog('context.start returned');
   })();
   </script>
 </body>
