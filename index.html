@@ -141,7 +141,7 @@
     // LAUNCHES on this device; 'hls' = useShakaForHls with NO version pin; 'pinned' = production
     // (useShakaForHls + shakaVersion 4.15.35). If 'off' reaches "READY ok" but 'pinned' hangs/crashes,
     // the Shaka version injection is the culprit on this device. Set back to 'pinned' for production.
-    var SHAKA = 'off';
+    var SHAKA = 'pinned';
     var BUILD = 'casting-receiver-DIAG-shaka_' + SHAKA + '-2026-06-02';
     var NS = 'urn:x-cast:com.casttry.cast';
 
@@ -169,6 +169,17 @@
     }
     applyDbg();
 
+    // Surface ANY uncaught error / promise rejection on the overlay (turns a blank "Something went
+    // wrong" into an actionable line). Forces the overlay visible even if DEBUG was off.
+    window.addEventListener('error', function (ev) {
+      DEBUG = true; applyDbg();
+      dlog('WINDOW ERROR: ' + (ev.message || '') + ' @' + String(ev.filename || '').slice(-28) + ':' + (ev.lineno || '?'));
+    });
+    window.addEventListener('unhandledrejection', function (ev) {
+      DEBUG = true; applyDbg();
+      dlog('PROMISE REJECT: ' + ((ev.reason && ev.reason.message) || ev.reason || '?'));
+    });
+
     // Paint the branded Idle screen IMMEDIATELY — before/independent of CAF's READY event. This
     // covers the CAF <cast-media-player> default spinner and makes the page look right when the
     // receiver URL is opened directly in a browser (CAF only fires READY when actually cast to).
@@ -189,14 +200,24 @@
     function toSenders(o) { try { context.sendCustomMessage(NS, undefined, o); } catch (e) {} }
     try { context.setLoggerLevel(cast.framework.LoggerLevel.DEBUG); } catch (e) {}
 
+    // Guarded subscribe — never let an undefined/unsupported EventType abort startup. An exception
+    // here would skip context.start() entirely → launch times out / the receiver crashes. Logs the
+    // offender so a bad type is visible on the overlay instead of silently killing the app.
+    function on(target, type, fn, label) {
+      try {
+        if (type === undefined || type === null) { dlog('skip ' + label + ' (no such EventType)'); return; }
+        target.addEventListener(type, fn);
+      } catch (e) { dlog('ERR ' + label + ': ' + (e && e.message || e)); }
+    }
+
     // Connection pill: green dot + "Connected" when a sender is attached, else spinner + "Waiting…".
     function updatePill() {
       var n = 0; try { n = (context.getSenders() || []).length; } catch (e) {}
       if (n > 0) { pillIcon.className = 'dot'; pillTxt.textContent = 'Connected'; pillTxt.style.color = 'var(--success)'; }
       else       { pillIcon.className = 'spin'; pillTxt.textContent = 'Waiting…';  pillTxt.style.color = 'var(--fg2)'; }
     }
-    context.addEventListener(SYS.EventType.SENDER_CONNECTED, updatePill);
-    context.addEventListener(SYS.EventType.SENDER_DISCONNECTED, function () { updatePill(); });
+    on(context, SYS.EventType.SENDER_CONNECTED, updatePill, 'SENDER_CONNECTED');
+    on(context, SYS.EventType.SENDER_DISCONNECTED, function () { updatePill(); }, 'SENDER_DISCONNECTED');
 
     // ---- playback engine (unchanged) ----
     // LOAD interceptor — branded Loading screen, pass the request through unchanged.
@@ -210,24 +231,24 @@
       } catch (e) {}
       return req;
     });
-    pm.addEventListener(E.PLAYER_LOAD_COMPLETE, function () {
+    on(pm, E.PLAYER_LOAD_COMPLETE, function () {
       var n = 0; try { n = (((pm.getMediaInformation() || {}).tracks) || []).length; } catch (e) {}
       dlog('LOAD_COMPLETE tracks=' + n);
-    });
-    // Drive the branded screens off player state: PLAYING/PAUSED -> show video, IDLE -> idle.
-    pm.addEventListener(E.PLAYER_STATE_CHANGED, function (ev) {
-      var st = ev.playerState || (function () { try { return pm.getPlayerState(); } catch (e) { return ''; } })();
+    }, 'PLAYER_LOAD_COMPLETE');
+    // Drive the branded screens off MEDIA_STATUS + getPlayerState() — the proven event the old
+    // validated receiver used. PLAYING/PAUSED -> show video, IDLE -> idle, BUFFERING keeps Loading.
+    on(pm, E.MEDIA_STATUS, function () {
+      var st = ''; try { st = pm.getPlayerState(); } catch (e) {}
       if (st === 'PLAYING' || st === 'PAUSED') showScreen('none');
       else if (st === 'IDLE') showScreen('idle');
-      // BUFFERING keeps whatever screen is up (Loading on first load).
-    });
-    pm.addEventListener(E.MEDIA_FINISHED, function () { dlog('MEDIA_FINISHED'); showScreen('idle'); });
-    pm.addEventListener(E.ERROR, function (e) {
+    }, 'MEDIA_STATUS');
+    on(pm, E.MEDIA_FINISHED, function () { dlog('MEDIA_FINISHED'); showScreen('idle'); }, 'MEDIA_FINISHED');
+    on(pm, E.ERROR, function (e) {
       dlog('ERROR code=' + e.detailedErrorCode + ' reason=' + (e.error && (e.error.reason || e.error.type) || '?'));
       document.getElementById('errMsg').textContent = 'This media could not be played on this device.';
       showScreen('error');
       toSenders({ type: 'error', detailedErrorCode: e.detailedErrorCode, reason: e.error && (e.error.reason || e.error.type) });
-    });
+    }, 'ERROR');
 
     // Receiver-side codec capability probe (relayed to the sender; no UI).
     function probeCaps() {
@@ -240,11 +261,13 @@
       try { if (context.getDeviceInformation) dev2 = context.getDeviceInformation(); } catch (e) {}
       toSenders({ type: 'capabilities', codecs: caps, device: dev, deviceInfo: dev2 });
     }
-    context.addCustomMessageListener(NS, function (ev) {
-      var d = ev.data || {};
-      if (d.type === 'getCaps') probeCaps();
-      else if (d.type === 'debug') { DEBUG = !!d.on; applyDbg(); }      // remote-toggle the overlay
-    });
+    try {
+      context.addCustomMessageListener(NS, function (ev) {
+        var d = ev.data || {};
+        if (d.type === 'getCaps') probeCaps();
+        else if (d.type === 'debug') { DEBUG = !!d.on; applyDbg(); }    // remote-toggle the overlay
+      });
+    } catch (e) { dlog('ERR addCustomMessageListener: ' + (e && e.message || e)); }
 
     var options = new cast.framework.CastReceiverOptions();
     // Shaka config gated by the SHAKA diagnostic flag (see top). Production = 'pinned'.
@@ -258,13 +281,13 @@
     }
     // SHAKA === 'off' -> no Shaka options at all (bare CAF player)
     options.customNamespaces = {}; options.customNamespaces[NS] = SYS.MessageType.JSON;
-    context.addEventListener(SYS.EventType.READY, function () {
+    on(context, SYS.EventType.READY, function () {
       showScreen('idle'); updatePill();
       dlog('READY ok (shaka=' + SHAKA + ')'); probeCaps();
-    });
+    }, 'READY');
     dlog('calling context.start (shaka=' + SHAKA + ')…');
-    context.start(options);
-    dlog('context.start returned');
+    try { context.start(options); dlog('context.start returned'); }
+    catch (e) { dlog('ERR context.start: ' + (e && e.message || e)); }
   })();
   </script>
 </body>
