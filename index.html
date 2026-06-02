@@ -3,127 +3,248 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-  <title>Cast Receiver</title>
+  <title>Casting Receiver</title>
 
   <!--
-    Custom Web Receiver for CastTry — CAF + Shaka (useShakaForHls) so multi-track fMP4 HLS plays +
-    LIVE-switches audio/subtitle. Registered against app id 9BDEDD6A; hosted on GitHub Pages.
+    Casting Receiver — custom Google Cast Web Receiver (CAF v3 + Shaka, useShakaForHls) for CastTry.
+    Plays + LIVE-switches multi-track fMP4 HLS / DASH that the Default receiver (CC1AD845) can't.
+    Registered against app id 9BDEDD6A; hosted on GitHub Pages (HTTPS required). See README.md.
 
-    2026-06-01: Test A proved the SAME cinderella-2aud-2sub-hls (fMP4 .m4s, demuxed 2-aud/2-sub)
-    plays + LIVE-switches in recent Shaka on all 4 browser players (Vega/Fire/Samsung/LG). The
-    earlier 2026-05-31 CC failure (905/321 LOAD_FAILED on the Ultra) was almost certainly the OLD
-    Shaka the device's CAF bundled: useShakaForHls was set but shakaVersion was NOT, so it used the
-    device default. Per CAF docs the opt-in should pin a Shaka >= 4.15.35. Mixed content is NOT the
-    blocker (the Default receiver already plays our HTTP HLS — see README). FIX A (this build): pin
-    options.shakaVersion = '4.15.35'. If this STILL fails, FIX B = manual shaka.Player in the LOAD
-    interceptor (CDN-pinned 4.15.x + NetworkingEngine request filters), per the open-cast-receiver
-    template (https://github.com/JtdeGraaf/open-cast-receiver) — gives full version/filter control.
+    Branding (2026-06-02): reskinned to match the Roku "Casting Receiver" identity — dark #0a0a0c /
+    red #FF465B, "Casting Receiver" wordmark, connection pill, and branded Idle / Loading / Error
+    states overlaid on <cast-media-player>. The cast logo (white screen + red waves in a rounded
+    tile) is inlined below and is the source of cast-logo.svg / icon.png.
 
-    DEBUG build: on-TV overlay (top-left) shows build tag / READY / LOAD / errors / state + a short
-    scrolling log so hardware tests aren't blind. Set DEBUG=false (or strip #dbg) for production.
+    Playback engine (unchanged, VALIDATED 2026-06-01): options.useShakaForHls=true MUST pin
+    options.shakaVersion='4.15.35' (without it the device uses its OLD bundled Shaka → 905/321
+    LOAD_FAILED on demuxed HLS). Mixed content is NOT blocked (Shaka-on-receiver fetches HTTP-LAN).
+    The Default receiver WEDGES on demuxed HLS even when clean, so this custom receiver is REQUIRED.
+
+    DEBUG overlay (top-left) defaults OFF for production; flip DEBUG=true or send
+    {type:'debug', on:true} on the diagnostics namespace to show build tag / LOAD / errors / state.
   -->
   <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&family=JetBrains+Mono&display=swap" rel="stylesheet">
 
   <style>
-    html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
-    cast-media-player { position: absolute; inset: 0; width: 100%; height: 100%; }
-    /* Idle screen: centered cast glyph on black (no text). Shown when idle, hidden while playing. */
-    #idle {
-      position: absolute; inset: 0; z-index: 9990;
-      background: #000
-        url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23dddddd'><path d='M1 18v3h3c0-1.66-1.34-3-3-3zm0-4v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7zm0-4v2c4.97 0 9 4.03 9 9h2c0-6.08-4.93-11-11-11zm20-7H3c-1.1 0-2 .9-2 2v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z'/></svg>")
-        center center / 13vmin no-repeat;
+    :root {
+      --bg:#0a0a0c; --surface:#13131a; --surface2:#1c1c25; --line2:#3a3a48;
+      --fg:#f5f5f7; --fg2:#b8b8c2; --fg3:#7a7a86;
+      --accent:#FF465B; --success:#3ec57a; --danger:#ff5a4d;
+      --sans:'Sora','Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+      --mono:'JetBrains Mono',ui-monospace,'Cascadia Mono',Consolas,monospace;
     }
-    #idle.hidden { display: none; }
-    /* DEBUG overlay — top-left, monospace, semi-transparent. Above everything. */
-    #dbg {
-      position: absolute; left: 1.5vmin; top: 1.5vmin; z-index: 10000;
-      max-width: 70vw; max-height: 60vh; overflow: hidden;
-      font: 2.2vmin/1.35 monospace; color: #0f0; white-space: pre-wrap;
-      background: rgba(0,0,0,0.55); padding: 1vmin 1.5vmin; border-radius: 0.8vmin;
-      text-shadow: 0 0 2px #000;
-    }
-    #dbg.hidden { display: none; }
+    html, body { margin:0; height:100%; background:var(--bg); overflow:hidden; color:var(--fg);
+      font-family:var(--sans); -webkit-font-smoothing:antialiased; }
+    cast-media-player { position:absolute; inset:0; width:100%; height:100%; }
+
+    /* ---- branded screens (overlay <cast-media-player>) ---- */
+    .screen { position:absolute; inset:0; z-index:9990; background:var(--bg);
+      display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; }
+    .screen.hidden { display:none; }
+    .logo svg { display:block; }
+    .title { font-weight:600; color:var(--fg); margin-top:3.2vmin; font-size:4.4vmin; letter-spacing:.2px; }
+    .sub   { font-family:var(--mono); color:var(--fg3); margin-top:1.4vmin; font-size:2.2vmin; }
+
+    /* ---- top chrome (idle): wordmark + connection pill ---- */
+    #chrome { position:absolute; inset:0; z-index:9995; pointer-events:none; }
+    #chrome.hidden { display:none; }
+    #wordmark { position:absolute; left:5vmin; top:4.4vmin; color:var(--fg2);
+      font-weight:700; font-size:3vmin; letter-spacing:.3px; }
+    #pill { position:absolute; right:5vmin; top:4vmin; display:flex; align-items:center; gap:1.4vmin;
+      background:var(--surface2); border-radius:999px; padding:1.1vmin 2.2vmin 1.1vmin 1.8vmin; }
+    #pillTxt { font-weight:600; font-size:2.4vmin; color:var(--fg2); }
+    #pillIcon { width:2.2vmin; height:2.2vmin; flex:0 0 auto; }
+    #pillIcon.dot { border-radius:50%; background:var(--success); }
+    #pillIcon.spin { border-radius:50%; border:0.42vmin solid var(--line2); border-top-color:var(--fg2);
+      animation:spin 0.8s linear infinite; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+
+    /* ---- loading spinner ---- */
+    .lspin { width:5vmin; height:5vmin; margin-top:3.4vmin; border-radius:50%;
+      border:0.55vmin solid var(--surface2); border-top-color:var(--accent); animation:spin 0.9s linear infinite; }
+
+    /* ---- error card ---- */
+    #error .card { width:62vw; max-width:1000px; background:var(--surface);
+      border:2px solid var(--line2); border-radius:2vmin; padding:5vmin 4vmin; }
+    #error .bang { font-weight:700; font-size:7vmin; color:var(--danger); line-height:1; }
+    #error .msg  { color:var(--fg2); font-size:2.8vmin; margin-top:2vmin; }
+    #error .hint { font-family:var(--mono); color:var(--fg3); font-size:2vmin; margin-top:2.6vmin; }
+
+    /* ---- DEBUG overlay (top-left) ---- */
+    #dbg { position:absolute; left:1.5vmin; top:1.5vmin; z-index:10000; max-width:70vw; max-height:60vh;
+      overflow:hidden; font:2.2vmin/1.35 var(--mono); color:#0f0; white-space:pre-wrap;
+      background:rgba(0,0,0,0.55); padding:1vmin 1.5vmin; border-radius:0.8vmin; text-shadow:0 0 2px #000; }
+    #dbg.hidden { display:none; }
   </style>
 </head>
 <body>
   <cast-media-player></cast-media-player>
-  <div id="idle"></div>
-  <div id="dbg">receiver: booting…</div>
+
+  <!-- top chrome (idle only) -->
+  <div id="chrome" class="hidden">
+    <div id="wordmark">Casting Receiver</div>
+    <div id="pill"><span id="pillIcon" class="spin"></span><span id="pillTxt">Waiting…</span></div>
+  </div>
+
+  <!-- Idle -->
+  <div id="idle" class="screen hidden">
+    <div class="logo">
+      <svg width="22vmin" height="22vmin" viewBox="0 0 512 512" style="width:22vmin;height:22vmin" aria-label="Casting Receiver">
+        <defs><linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#1c1c25"/><stop offset="1" stop-color="#0e0e13"/></linearGradient></defs>
+        <rect x="11" y="11" width="490" height="490" rx="116" fill="url(#tile)" stroke="#FF465B" stroke-width="6"/>
+        <g transform="translate(123,130) scale(11)">
+          <path fill="#f5f5f7" d="M21 3H3c-1.1 0-2 .9-2 2v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/>
+          <path fill="#FF465B" d="M1 18v3h3c0-1.66-1.34-3-3-3zm0-4v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7zm0-4v2c4.97 0 9 4.03 9 9h2c0-6.08-4.93-11-11-11z"/>
+        </g>
+      </svg>
+    </div>
+    <div class="title">Ready to receive</div>
+    <div class="sub" id="idleSub">Cast a video from your phone or computer</div>
+  </div>
+
+  <!-- Loading -->
+  <div id="loading" class="screen hidden">
+    <div class="logo">
+      <svg width="14vmin" height="14vmin" viewBox="0 0 512 512" style="width:14vmin;height:14vmin" aria-hidden="true">
+        <rect x="11" y="11" width="490" height="490" rx="116" fill="#13131a" stroke="#FF465B" stroke-width="6"/>
+        <g transform="translate(123,130) scale(11)">
+          <path fill="#f5f5f7" d="M21 3H3c-1.1 0-2 .9-2 2v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/>
+          <path fill="#FF465B" d="M1 18v3h3c0-1.66-1.34-3-3-3zm0-4v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7zm0-4v2c4.97 0 9 4.03 9 9h2c0-6.08-4.93-11-11-11z"/>
+        </g>
+      </svg>
+    </div>
+    <div class="title">Loading</div>
+    <div class="sub" id="loadSub"></div>
+    <div class="lspin"></div>
+  </div>
+
+  <!-- Error -->
+  <div id="error" class="screen hidden">
+    <div class="card">
+      <div class="bang">!</div>
+      <div class="title">Playback error</div>
+      <div class="msg" id="errMsg">This media could not be played on this device.</div>
+      <div class="hint">Cast again from the app to retry.</div>
+    </div>
+  </div>
+
+  <div id="dbg" class="hidden">receiver: booting…</div>
 
   <script>
   (function () {
     'use strict';
-    const DEBUG = true;                         // ← on-TV overlay; set false for production
-    const BUILD = 'v3-shaka4.15-2026-06-01';
-    const NS = 'urn:x-cast:com.casttry.cast';
-    const idleEl = document.getElementById('idle');
-    const dbgEl  = document.getElementById('dbg');
-    function showIdle(v) { idleEl.classList.toggle('hidden', !v); }
+    var DEBUG = false;                          // on-TV overlay; flip true (or send {type:'debug',on:true})
+    var BUILD = 'casting-receiver-v3-shaka4.15-2026-06-02';
+    var NS = 'urn:x-cast:com.casttry.cast';
 
-    // Overlay log — keeps the last ~14 lines.
-    const lines = [];
+    var dbgEl  = document.getElementById('dbg');
+    var chrome = document.getElementById('chrome');
+    var pillIcon = document.getElementById('pillIcon');
+    var pillTxt  = document.getElementById('pillTxt');
+
+    // Show exactly one branded screen ('idle' | 'loading' | 'error' | 'none') + toggle chrome.
+    function showScreen(name) {
+      ['idle','loading','error'].forEach(function (s) {
+        document.getElementById(s).classList.toggle('hidden', s !== name);
+      });
+      chrome.classList.toggle('hidden', name !== 'idle');   // wordmark + pill on idle only
+    }
+
+    // Overlay log — keeps the last ~14 lines (only when DEBUG / toggled on).
+    var lines = [];
+    function applyDbg() { dbgEl.classList.toggle('hidden', !DEBUG); }
     function dlog(m) {
       try { console.log('[Receiver] ' + m); } catch (e) {}
       if (!DEBUG || !dbgEl) return;
       lines.push(m); while (lines.length > 14) lines.shift();
       dbgEl.textContent = 'build: ' + BUILD + '\n' + lines.join('\n');
     }
-    if (!DEBUG && dbgEl) dbgEl.classList.add('hidden');
+    applyDbg();
 
-    // Guard: if the SDK script failed to load, cast.framework is undefined — say so
-    // on-screen instead of failing silently.
+    // Guard: if the SDK script failed to load, cast.framework is undefined — surface it.
     if (typeof cast === 'undefined' || !cast.framework) {
+      DEBUG = true; applyDbg();
       if (dbgEl) dbgEl.textContent = 'build: ' + BUILD + '\nFATAL: CAF SDK did not load (script blocked / URL dead)';
+      showScreen('error');
       return;
     }
 
-    const context = cast.framework.CastReceiverContext.getInstance();
-    const pm = context.getPlayerManager();
-    const M = cast.framework.messages, E = cast.framework.events.EventType;
+    var context = cast.framework.CastReceiverContext.getInstance();
+    var pm = context.getPlayerManager();
+    var M = cast.framework.messages, E = cast.framework.events.EventType, SYS = cast.framework.system;
     function toSenders(o) { try { context.sendCustomMessage(NS, undefined, o); } catch (e) {} }
     try { context.setLoggerLevel(cast.framework.LoggerLevel.DEBUG); } catch (e) {}
 
-    // LOAD interceptor — pass the request through unchanged (CAF built-in player handles it).
-    pm.setMessageInterceptor(M.MessageType.LOAD, req => {
-      showIdle(false);
+    // Connection pill: green dot + "Connected" when a sender is attached, else spinner + "Waiting…".
+    function updatePill() {
+      var n = 0; try { n = (context.getSenders() || []).length; } catch (e) {}
+      if (n > 0) { pillIcon.className = 'dot'; pillTxt.textContent = 'Connected'; pillTxt.style.color = 'var(--success)'; }
+      else       { pillIcon.className = 'spin'; pillTxt.textContent = 'Waiting…';  pillTxt.style.color = 'var(--fg2)'; }
+    }
+    context.addEventListener(SYS.EventType.SENDER_CONNECTED, updatePill);
+    context.addEventListener(SYS.EventType.SENDER_DISCONNECTED, function () { updatePill(); });
+
+    // ---- playback engine (unchanged) ----
+    // LOAD interceptor — branded Loading screen, pass the request through unchanged.
+    pm.setMessageInterceptor(M.MessageType.LOAD, function (req) {
+      showScreen('loading');
       try {
-        const m = req.media || {};
+        var m = req.media || {};
+        var title = (m.metadata && (m.metadata.title || m.metadata.subtitle)) || '';
+        document.getElementById('loadSub').textContent = title;
         dlog('LOAD ct=' + (m.contentType || '?') + ' url=' + String(m.contentUrl || m.contentId || '').slice(-48));
       } catch (e) {}
       return req;
     });
-    pm.addEventListener(E.PLAYER_LOAD_COMPLETE, () => {
-      showIdle(false);
-      let n = 0; try { n = (((pm.getMediaInformation() || {}).tracks) || []).length; } catch (e) {}
+    pm.addEventListener(E.PLAYER_LOAD_COMPLETE, function () {
+      var n = 0; try { n = (((pm.getMediaInformation() || {}).tracks) || []).length; } catch (e) {}
       dlog('LOAD_COMPLETE tracks=' + n);
     });
-    pm.addEventListener(E.MEDIA_FINISHED, () => { dlog('MEDIA_FINISHED'); showIdle(true); });
-    pm.addEventListener(E.MEDIA_STATUS, () => { try { if (pm.getPlayerState() === 'IDLE') showIdle(true); } catch (e) {} });
-    pm.addEventListener(E.ERROR, e => {
+    // Drive the branded screens off player state: PLAYING/PAUSED -> show video, IDLE -> idle.
+    pm.addEventListener(E.PLAYER_STATE_CHANGED, function (ev) {
+      var st = ev.playerState || (function () { try { return pm.getPlayerState(); } catch (e) { return ''; } })();
+      if (st === 'PLAYING' || st === 'PAUSED') showScreen('none');
+      else if (st === 'IDLE') showScreen('idle');
+      // BUFFERING keeps whatever screen is up (Loading on first load).
+    });
+    pm.addEventListener(E.MEDIA_FINISHED, function () { dlog('MEDIA_FINISHED'); showScreen('idle'); });
+    pm.addEventListener(E.ERROR, function (e) {
       dlog('ERROR code=' + e.detailedErrorCode + ' reason=' + (e.error && (e.error.reason || e.error.type) || '?'));
+      document.getElementById('errMsg').textContent = 'This media could not be played on this device.';
+      showScreen('error');
       toSenders({ type: 'error', detailedErrorCode: e.detailedErrorCode, reason: e.error && (e.error.reason || e.error.type) });
     });
 
     // Receiver-side codec capability probe (relayed to the sender; no UI).
     function probeCaps() {
-      const want = [['H.264 1080p','video/mp4','avc1.640028',1920,1080],['H.264 4K','video/mp4','avc1.640033',3840,2160],
+      var want = [['H.264 1080p','video/mp4','avc1.640028',1920,1080],['H.264 4K','video/mp4','avc1.640033',3840,2160],
         ['HEVC','video/mp4','hev1.1.6.L93.B0',1920,1080],['VP9','video/webm','vp9',1920,1080],['AV1','video/mp4','av01.0.04M.08',1920,1080],
         ['AAC','audio/mp4','mp4a.40.2'],['AC-3','audio/mp4','ac-3'],['E-AC-3','audio/mp4','ec-3'],['Opus','audio/webm','opus'],['FLAC','audio/mp4','flac']];
-      const caps = {}; for (const a of want) { let ok = false; try { ok = context.canDisplayType(a[1], a[2], a[3] || undefined, a[4] || undefined); } catch (e) {} caps[a[0]] = ok; }
-      let dev = null, dev2 = null; try { if (context.getDeviceCapabilities) dev = context.getDeviceCapabilities(); } catch (e) {}
+      var caps = {}; for (var i = 0; i < want.length; i++) { var a = want[i], ok = false;
+        try { ok = context.canDisplayType(a[1], a[2], a[3] || undefined, a[4] || undefined); } catch (e) {} caps[a[0]] = ok; }
+      var dev = null, dev2 = null; try { if (context.getDeviceCapabilities) dev = context.getDeviceCapabilities(); } catch (e) {}
       try { if (context.getDeviceInformation) dev2 = context.getDeviceInformation(); } catch (e) {}
       toSenders({ type: 'capabilities', codecs: caps, device: dev, deviceInfo: dev2 });
     }
-    context.addCustomMessageListener(NS, ev => { const d = ev.data || {}; if (d.type === 'getCaps') probeCaps(); });
+    context.addCustomMessageListener(NS, function (ev) {
+      var d = ev.data || {};
+      if (d.type === 'getCaps') probeCaps();
+      else if (d.type === 'debug') { DEBUG = !!d.on; applyDbg(); }      // remote-toggle the overlay
+    });
 
-    const options = new cast.framework.CastReceiverOptions();
+    var options = new cast.framework.CastReceiverOptions();
     options.useShakaForHls = true;
-    // Pin a recent Shaka for HLS. CAF >= 3.0.0105 honours this; without it the device used its
-    // OLD bundled Shaka → the 2026-05-31 demuxed-HLS LOAD_FAILED. Docs: pin >= 4.15.35.
+    // Pin a recent Shaka for HLS. Without this the device uses its OLD bundled Shaka -> demuxed-HLS
+    // LOAD_FAILED (2026-05-31). Docs: pin >= 4.15.35.
     options.shakaVersion = '4.15.35';
-    options.customNamespaces = {}; options.customNamespaces[NS] = cast.framework.system.MessageType.JSON;
-    context.addEventListener(cast.framework.system.EventType.READY, () => { showIdle(true); dlog('READY (useShakaForHls=true, shaka=4.15.35)'); probeCaps(); });
+    options.customNamespaces = {}; options.customNamespaces[NS] = SYS.MessageType.JSON;
+    context.addEventListener(SYS.EventType.READY, function () {
+      showScreen('idle'); updatePill();
+      dlog('READY (useShakaForHls=true, shaka=4.15.35)'); probeCaps();
+    });
     dlog('starting context…');
     context.start(options);
   })();
