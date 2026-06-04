@@ -6,7 +6,7 @@
   <title>AIX Casting Receiver</title>
 
   <!--
-    Casting Receiver — custom Google Cast Web Receiver (CAF v3 + Shaka, useShakaForHls) for CastTry.
+    Casting Receiver — custom Google Cast Web Receiver (CAF v3 + Shaka, useShakaForHls) for AixCast.
     Plays + LIVE-switches multi-track fMP4 HLS / DASH that the Default receiver (CC1AD845) can't.
     Registered against app id 9BDEDD6A; hosted on GitHub Pages (HTTPS required). See README.md.
 
@@ -140,7 +140,7 @@
     // the Shaka version injection is the culprit on this device. Set back to 'pinned' for production.
     var SHAKA = 'pinned';
     var BUILD = 'casting-receiver-1.0.0';       // version label (shown on the DEBUG overlay)
-    var NS = 'urn:x-cast:com.casttry.cast';
+    var NS = 'urn:x-cast:com.aixcast.cast';
 
     var dbgEl  = document.getElementById('dbg');
     var chrome = document.getElementById('chrome');
