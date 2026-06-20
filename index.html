@@ -4,31 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
   <title>AIX Casting Receiver</title>
-
-  <!--
-    Casting Receiver — custom Google Cast Web Receiver (CAF v3 + Shaka, useShakaForHls) for AixCast.
-    Plays + LIVE-switches multi-track fMP4 HLS / DASH that the Default receiver (CC1AD845) can't.
-    Registered against app id 9BDEDD6A; hosted on GitHub Pages (HTTPS required). See README.md.
-
-    Branding (2026-06-02): reskinned to match the Roku "Casting Receiver" identity — dark #0a0a0c /
-    red #FF465B, "Casting Receiver" wordmark, connection pill, and branded Idle / Loading / Error
-    states overlaid on <cast-media-player>. The cast logo (white screen + red waves in a rounded
-    tile) is inlined below and is the source of cast-logo.svg / icon.png.
-
-    Playback engine (unchanged, VALIDATED 2026-06-01): options.useShakaForHls=true MUST pin
-    options.shakaVersion='4.15.35' (without it the device uses its OLD bundled Shaka → 905/321
-    LOAD_FAILED on demuxed HLS). Mixed content is NOT blocked (Shaka-on-receiver fetches HTTP-LAN).
-    The Default receiver WEDGES on demuxed HLS even when clean, so this custom receiver is REQUIRED.
-
-    DEBUG overlay (top-left) defaults OFF for production; flip DEBUG=true or send
-    {type:'debug', on:true} on the diagnostics namespace to show build tag / LOAD / errors / state.
-  -->
   <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
 
   <style>
-    /* AIX brand fonts embedded alongside this page (deployed to GitHub Pages with
-       index.html) — same TTFs the Roku receiver ships, so all three casting
-       surfaces render identically with no external CDN dependency. */
     @font-face { font-family:'Sora'; font-weight:400; font-style:normal; font-display:swap;
                  src:url('Sora-Regular.ttf') format('truetype'); }
     @font-face { font-family:'Sora'; font-weight:600; font-style:normal; font-display:swap;
@@ -49,16 +27,14 @@
       font-family:var(--sans); -webkit-font-smoothing:antialiased; }
     cast-media-player { position:absolute; inset:0; width:100%; height:100%; }
 
-    /* ---- branded screens (overlay <cast-media-player>) ---- */
     .screen { position:absolute; inset:0; z-index:9990; background:var(--bg);
       display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; }
     .screen.hidden { display:none; }
     .logo svg { display:block; }
-    .logo img { display:block; border-radius:4vmin; }   /* AIX brand tile (shared with the Roku receiver) */
+    .logo img { display:block; border-radius:4vmin; }
     .title { font-weight:600; color:var(--fg); margin-top:3.2vmin; font-size:4.4vmin; letter-spacing:.2px; }
     .sub   { font-family:var(--mono); color:var(--fg3); margin-top:1.4vmin; font-size:2.2vmin; }
 
-    /* ---- top chrome (idle): wordmark + connection pill ---- */
     #chrome { position:absolute; inset:0; z-index:9995; pointer-events:none; }
     #chrome.hidden { display:none; }
     #wordmark { position:absolute; left:5vmin; top:4.4vmin; color:var(--fg2);
@@ -72,18 +48,15 @@
       animation:spin 0.8s linear infinite; }
     @keyframes spin { to { transform:rotate(360deg); } }
 
-    /* ---- loading spinner ---- */
     .lspin { width:5vmin; height:5vmin; margin-top:3.4vmin; border-radius:50%;
       border:0.55vmin solid var(--surface2); border-top-color:var(--accent); animation:spin 0.9s linear infinite; }
 
-    /* ---- error card ---- */
     #error .card { width:62vw; max-width:1000px; background:var(--surface);
       border:2px solid var(--line2); border-radius:2vmin; padding:5vmin 4vmin; }
     #error .bang { font-weight:700; font-size:7vmin; color:var(--danger); line-height:1; }
     #error .msg  { color:var(--fg2); font-size:2.8vmin; margin-top:2vmin; }
     #error .hint { font-family:var(--mono); color:var(--fg3); font-size:2vmin; margin-top:2.6vmin; }
 
-    /* ---- DEBUG overlay (top-left) ---- */
     #dbg { position:absolute; left:1.5vmin; top:1.5vmin; z-index:10000; max-width:70vw; max-height:60vh;
       overflow:hidden; font:2.2vmin/1.35 var(--mono); color:#0f0; white-space:pre-wrap;
       background:rgba(0,0,0,0.55); padding:1vmin 1.5vmin; border-radius:0.8vmin; text-shadow:0 0 2px #000; }
@@ -93,13 +66,11 @@
 <body>
   <cast-media-player></cast-media-player>
 
-  <!-- top chrome (idle only) -->
   <div id="chrome" class="hidden">
     <div id="wordmark">AIX Casting Receiver</div>
     <div id="pill"><span id="pillIcon" class="spin"></span><span id="pillTxt">Waiting…</span></div>
   </div>
 
-  <!-- Idle -->
   <div id="idle" class="screen hidden">
     <div class="logo">
       <img src="aix-logo.png" alt="AIX Casting Receiver" style="width:24vmin;height:24vmin">
@@ -108,7 +79,6 @@
     <div class="sub" id="idleSub">Cast a video from your phone or computer</div>
   </div>
 
-  <!-- Loading -->
   <div id="loading" class="screen hidden">
     <div class="logo">
       <img src="aix-logo.png" alt="" aria-hidden="true" style="width:15vmin;height:15vmin">
@@ -118,7 +88,6 @@
     <div class="lspin"></div>
   </div>
 
-  <!-- Error -->
   <div id="error" class="screen hidden">
     <div class="card">
       <div class="bang">!</div>
@@ -133,13 +102,9 @@
   <script>
   (function () {
     'use strict';
-    var DEBUG = false;                          // on-TV overlay; flip true (or send {type:'debug',on:true})
-    // DIAGNOSTIC: Shaka mode. 'off' = no Shaka at all (bare CAF) to test whether the receiver even
-    // LAUNCHES on this device; 'hls' = useShakaForHls with NO version pin; 'pinned' = production
-    // (useShakaForHls + shakaVersion 4.15.35). If 'off' reaches "READY ok" but 'pinned' hangs/crashes,
-    // the Shaka version injection is the culprit on this device. Set back to 'pinned' for production.
+    var DEBUG = false;
     var SHAKA = 'pinned';
-    var BUILD = 'casting-receiver-1.0.0';       // version label (shown on the DEBUG overlay)
+    var BUILD = 'casting-receiver-1.0.0';
     var NS = 'urn:x-cast:com.aixcast.cast';
 
     var dbgEl  = document.getElementById('dbg');
@@ -147,15 +112,13 @@
     var pillIcon = document.getElementById('pillIcon');
     var pillTxt  = document.getElementById('pillTxt');
 
-    // Show exactly one branded screen ('idle' | 'loading' | 'error' | 'none') + toggle chrome.
     function showScreen(name) {
       ['idle','loading','error'].forEach(function (s) {
         document.getElementById(s).classList.toggle('hidden', s !== name);
       });
-      chrome.classList.toggle('hidden', name !== 'idle');   // wordmark + pill on idle only
+      chrome.classList.toggle('hidden', name !== 'idle');
     }
 
-    // Overlay log — keeps the last ~14 lines (only when DEBUG / toggled on).
     var lines = [];
     function applyDbg() { dbgEl.classList.toggle('hidden', !DEBUG); }
     function dlog(m) {
@@ -166,8 +129,6 @@
     }
     applyDbg();
 
-    // Surface ANY uncaught error / promise rejection on the overlay (turns a blank "Something went
-    // wrong" into an actionable line). Forces the overlay visible even if DEBUG was off.
     window.addEventListener('error', function (ev) {
       DEBUG = true; applyDbg();
       dlog('WINDOW ERROR: ' + (ev.message || '') + ' @' + String(ev.filename || '').slice(-28) + ':' + (ev.lineno || '?'));
@@ -177,12 +138,8 @@
       dlog('PROMISE REJECT: ' + ((ev.reason && ev.reason.message) || ev.reason || '?'));
     });
 
-    // Paint the branded Idle screen IMMEDIATELY — before/independent of CAF's READY event. This
-    // covers the CAF <cast-media-player> default spinner and makes the page look right when the
-    // receiver URL is opened directly in a browser (CAF only fires READY when actually cast to).
     showScreen('idle');
 
-    // Guard: if the SDK script failed to load, cast.framework is undefined — surface it.
     if (typeof cast === 'undefined' || !cast.framework) {
       DEBUG = true; applyDbg();
       if (dbgEl) dbgEl.textContent = 'build: ' + BUILD + '\nFATAL: CAF SDK did not load (script blocked / URL dead)';
@@ -197,9 +154,6 @@
     function toSenders(o) { try { context.sendCustomMessage(NS, undefined, o); } catch (e) {} }
     try { context.setLoggerLevel(cast.framework.LoggerLevel.DEBUG); } catch (e) {}
 
-    // Guarded subscribe — never let an undefined/unsupported EventType abort startup. An exception
-    // here would skip context.start() entirely → launch times out / the receiver crashes. Logs the
-    // offender so a bad type is visible on the overlay instead of silently killing the app.
     function on(target, type, fn, label) {
       try {
         if (type === undefined || type === null) { dlog('skip ' + label + ' (no such EventType)'); return; }
@@ -207,7 +161,6 @@
       } catch (e) { dlog('ERR ' + label + ': ' + (e && e.message || e)); }
     }
 
-    // Connection pill: green dot + "Connected" when a sender is attached, else spinner + "Waiting…".
     function updatePill() {
       var n = 0; try { n = (context.getSenders() || []).length; } catch (e) {}
       if (n > 0) { pillIcon.className = 'dot'; pillTxt.textContent = 'Connected'; pillTxt.style.color = 'var(--success)'; }
@@ -216,8 +169,6 @@
     on(context, SYS.EventType.SENDER_CONNECTED, updatePill, 'SENDER_CONNECTED');
     on(context, SYS.EventType.SENDER_DISCONNECTED, function () { updatePill(); }, 'SENDER_DISCONNECTED');
 
-    // ---- playback engine (unchanged) ----
-    // LOAD interceptor — branded Loading screen, pass the request through unchanged.
     pm.setMessageInterceptor(M.MessageType.LOAD, function (req) {
       showScreen('loading');
       try {
@@ -232,8 +183,6 @@
       var n = 0; try { n = (((pm.getMediaInformation() || {}).tracks) || []).length; } catch (e) {}
       dlog('LOAD_COMPLETE tracks=' + n);
     }, 'PLAYER_LOAD_COMPLETE');
-    // Drive the branded screens off MEDIA_STATUS + getPlayerState() — the proven event the old
-    // validated receiver used. PLAYING/PAUSED -> show video, IDLE -> idle, BUFFERING keeps Loading.
     on(pm, E.MEDIA_STATUS, function () {
       var st = ''; try { st = pm.getPlayerState(); } catch (e) {}
       if (st === 'PLAYING' || st === 'PAUSED') showScreen('none');
@@ -247,12 +196,7 @@
       toSenders({ type: 'error', detailedErrorCode: e.detailedErrorCode, reason: e.error && (e.error.reason || e.error.type) });
     }, 'ERROR');
 
-    // Receiver-side codec capability probe (relayed to the sender; no UI).
     function probeCaps() {
-      // Read the panel's display capabilities FIRST. canDisplayType() validates a codec/profile/
-      // resolution/framerate combo, but it does NOT, on its own, reliably reflect HDR *transfer*
-      // support (esp. for HEVC Main10 — the codec string alone can't signal HDR10). So the HDR rows
-      // are additionally gated on the device's is_hdr_supported flag.
       var dev = null, dev2 = null;
       try { if (context.getDeviceCapabilities) dev = context.getDeviceCapabilities(); } catch (e) {}
       try { if (context.getDeviceInformation) dev2 = context.getDeviceInformation(); } catch (e) {}
@@ -261,19 +205,14 @@
       var hdrOk = devCap(DC.IS_HDR_SUPPORTED) || devCap('is_hdr_supported');
       var dvOk  = devCap(DC.IS_DV_SUPPORTED)  || devCap('is_dv_supported');
 
-      // [label, mime, codecs, width, height, framerate, needsHdr]. Each codec is probed at 1080p AND at
-      // 4K@60 (3840×2160, 60 fps) — the demanding case (HFR 4K) — plus 4K60 HDR for HEVC + VP9. The VP9
-      // HDR row carries the full colour-config string (profile-2 10-bit, BT.2020 primaries, PQ transfer)
-      // so the string itself signals HDR; HEVC HDR uses the Main10 profile (hev1.2…) and leans on the
-      // device flag. 4K uses level 5.1 (HEVC L153 / AV1 .13 / VP9 .51).
       var want = [
         ['H.264 1080p',   'video/mp4',  'avc1.640028',                  1920, 1080, 30, false],
         ['H.264 4K60',    'video/mp4',  'avc1.640033',                  3840, 2160, 60, false],
         ['HEVC 1080p',    'video/mp4',  'hev1.1.6.L93.B0',              1920, 1080, 30, false],
         ['HEVC 4K60',     'video/mp4',  'hev1.1.6.L153.B0',             3840, 2160, 60, false],
-        ['HEVC 4K60 HDR', 'video/mp4',  'hev1.2.4.L153.B0',             3840, 2160, 60, true ],  // Main10 / HDR10
+        ['HEVC 4K60 HDR', 'video/mp4',  'hev1.2.4.L153.B0',             3840, 2160, 60, true ],
         ['VP9 4K60',      'video/webm', 'vp09.00.51.08.01.01.01.01.00', 3840, 2160, 60, false],
-        ['VP9 4K60 HDR',  'video/webm', 'vp09.02.51.10.01.09.16.09.00', 3840, 2160, 60, true ],  // profile-2 10-bit BT.2020 PQ
+        ['VP9 4K60 HDR',  'video/webm', 'vp09.02.51.10.01.09.16.09.00', 3840, 2160, 60, true ],
         ['AV1 1080p',     'video/mp4',  'av01.0.05M.08',                1920, 1080, 30, false],
         ['AV1 4K60',      'video/mp4',  'av01.0.13M.08',                3840, 2160, 60, false],
         ['AAC',   'audio/mp4',  'mp4a.40.2'],
@@ -286,7 +225,7 @@
       for (var i = 0; i < want.length; i++) {
         var a = want[i], ok = false;
         try { ok = context.canDisplayType(a[1], a[2], a[3] || undefined, a[4] || undefined, a[5] || undefined); } catch (e) {}
-        if (a[6] && ok) ok = hdrOk;          // an HDR row only "passes" if the panel actually does HDR
+        if (a[6] && ok) ok = hdrOk;
         caps[a[0]] = ok;
       }
       dlog('caps H264-4K60=' + caps['H.264 4K60'] + ' HEVC-4K60=' + caps['HEVC 4K60'] +
@@ -298,21 +237,17 @@
       context.addCustomMessageListener(NS, function (ev) {
         var d = ev.data || {};
         if (d.type === 'getCaps') probeCaps();
-        else if (d.type === 'debug') { DEBUG = !!d.on; applyDbg(); }    // remote-toggle the overlay
+        else if (d.type === 'debug') { DEBUG = !!d.on; applyDbg(); }
       });
     } catch (e) { dlog('ERR addCustomMessageListener: ' + (e && e.message || e)); }
 
     var options = new cast.framework.CastReceiverOptions();
-    // Shaka config gated by the SHAKA diagnostic flag (see top). Production = 'pinned'.
     if (SHAKA === 'pinned') {
       options.useShakaForHls = true;
-      // Pin a recent Shaka for HLS. Without this the device uses its OLD bundled Shaka -> demuxed-HLS
-      // LOAD_FAILED (2026-05-31). Docs: pin >= 4.15.35.
       options.shakaVersion = '4.15.35';
     } else if (SHAKA === 'hls') {
-      options.useShakaForHls = true;            // let CAF choose the Shaka version (no pin)
+      options.useShakaForHls = true;
     }
-    // SHAKA === 'off' -> no Shaka options at all (bare CAF player)
     options.customNamespaces = {}; options.customNamespaces[NS] = SYS.MessageType.JSON;
     on(context, SYS.EventType.READY, function () {
       showScreen('idle'); updatePill();
