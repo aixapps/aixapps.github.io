@@ -7,21 +7,18 @@
   <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
 
   <style>
-    @font-face { font-family:'Sora'; font-weight:400; font-style:normal; font-display:swap;
-                 src:url('Sora-Regular.ttf') format('truetype'); }
-    @font-face { font-family:'Sora'; font-weight:600; font-style:normal; font-display:swap;
-                 src:url('Sora-SemiBold.ttf') format('truetype'); }
-    @font-face { font-family:'Sora'; font-weight:700; font-style:normal; font-display:swap;
-                 src:url('Sora-Bold.ttf') format('truetype'); }
-    @font-face { font-family:'JetBrains Mono'; font-weight:400; font-style:normal; font-display:swap;
-                 src:url('JetBrainsMono-Regular.ttf') format('truetype'); }
-
+    /* NO @font-face and NO external assets: this page is deployed as ONE file. Cast hardware runs a
+       Chromium build whose font set is essentially Roboto, so name it FIRST — a bare `sans-serif` would
+       land on whatever the firmware picks. The brand faces (Sora / JetBrains Mono) are deliberately gone;
+       shipping 366 KB of TTFs to render two lines of chrome is not a trade worth making, and it forced a
+       multi-file deploy. */
     :root {
       --bg:#0a0a0c; --surface:#13131a; --surface2:#1c1c25; --line2:#3a3a48;
       --fg:#f5f5f7; --fg2:#b8b8c2; --fg3:#7a7a86;
-      --accent:#FF465B; --success:#3ec57a; --danger:#ff5a4d;
-      --sans:'Sora','Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
-      --mono:'JetBrains Mono',ui-monospace,'Cascadia Mono',Consolas,monospace;
+      /* Ember, from the icon kit's palette — the old #FF465B magenta clashed with the new braid mark. */
+      --accent:#EA4E30; --success:#3ec57a; --danger:#ff5a4d;
+      --sans:Roboto,'Noto Sans','Segoe UI',system-ui,'Helvetica Neue',Arial,sans-serif;
+      --mono:'Roboto Mono','Noto Sans Mono',ui-monospace,'Cascadia Mono',Consolas,monospace;
     }
     html, body { margin:0; height:100%; background:var(--bg); overflow:hidden; color:var(--fg);
       font-family:var(--sans); -webkit-font-smoothing:antialiased; }
@@ -31,7 +28,6 @@
       display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; }
     .screen.hidden { display:none; }
     .logo svg { display:block; }
-    .logo img { display:block; border-radius:4vmin; }
     .title { font-weight:600; color:var(--fg); margin-top:3.2vmin; font-size:4.4vmin; letter-spacing:.2px; }
     .sub   { font-family:var(--mono); color:var(--fg3); margin-top:1.4vmin; font-size:2.2vmin; }
 
@@ -73,7 +69,31 @@
 
   <div id="idle" class="screen hidden">
     <div class="logo">
-      <img src="aix-logo.png" alt="AIX Casting Receiver" style="width:24vmin;height:24vmin">
+      <!-- The AIX mark, inlined as vector so this page needs no image file. Deliberately duplicated
+           rather than shared via <use>/<symbol>: two self-contained SVGs cost ~1.9 KB each and cannot
+           fail on older Cast firmware, whereas a cross-referenced <use> renders nothing if it does not
+           resolve. Gradient ids are prefixed per copy (i* here, l* on the loading screen) because
+           duplicate ids in one document are undefined behaviour. Geometry is the kit's
+           aix-mark-transparent-1024.svg verbatim; do not hand-edit the path data or the transform —
+           regenerate from src/Brands/AixApps/IconKit. -->
+      <svg viewBox="0 0 1024 1024" style="width:24vmin;height:24vmin" role="img" aria-label="AIX Casting Receiver">
+        <defs>
+          <linearGradient id="iA" gradientUnits="userSpaceOnUse" x1="150" y1="95" x2="875" y2="625">
+            <stop offset="0" stop-color="#FFC96F"/><stop offset=".22" stop-color="#FFA23A"/>
+            <stop offset=".56" stop-color="#F4652C"/><stop offset="1" stop-color="#D62E39"/></linearGradient>
+          <linearGradient id="iB" gradientUnits="userSpaceOnUse" x1="795" y1="300" x2="255" y2="900">
+            <stop offset="0" stop-color="#FFB253"/><stop offset=".26" stop-color="#F98A30"/>
+            <stop offset=".62" stop-color="#EA4E30"/><stop offset="1" stop-color="#B81C3C"/></linearGradient>
+          <linearGradient id="iC" gradientUnits="userSpaceOnUse" x1="440" y1="215" x2="140" y2="765">
+            <stop offset="0" stop-color="#EF8330"/><stop offset=".42" stop-color="#DE522C"/>
+            <stop offset="1" stop-color="#A5183A"/></linearGradient>
+        </defs>
+        <g transform="translate(512 512) scale(.82134) translate(-520.86 -512)">
+          <path fill="url(#iC)" d="M131.06,624.45c2.13,22.41,8.34,43.79,23.51,62.03c20.25,24.35,51.34,38.04,82.96,34.95c46.31-4.53,88.13-43.24,125.33-68.19c46.74-31.33,93.43-62.75,140.24-94.01c21.02-14.02,45.9-32.57,45.9-60.59c0,0,0.86-25.98-38.54-48.73l-180.85-88.57l4.77-211.36c0,0-195.78,66.27-197.07,152.68c-1.53,78.69-3.07,157.4-4.6,236.1C132.16,566.2,128.35,596.16,131.06,624.45z"/>
+          <path fill="url(#iA)" d="M137.23,307.04c0,0,60.54-168.16,210.22-56.92l493.52,363.06c0,0,85.21-113.78-136.86-331.35L428.86,81.07c0,0-156.85-115.05-262.91,7.19C127.3,149.98,130.1,187.13,137.23,307.04z"/>
+          <path fill="url(#iB)" d="M704.02,281.76c0,0,117.59,130.15-9.54,228.69L266.13,808.88c0,0-60.21,36.82-48.51,98.75c0,0,9.52,64.98,71.48,82.91c0,0,31.18,11.07,88.35-27.9L820.1,655.99c0,0,97.32-56.44,91.26-140.48c0,0,0.27-68.31-85.62-140.63L704.02,281.76z"/>
+        </g>
+      </svg>
     </div>
     <div class="title">Ready to receive</div>
     <div class="sub" id="idleSub">Cast a video from your phone or computer</div>
@@ -81,7 +101,24 @@
 
   <div id="loading" class="screen hidden">
     <div class="logo">
-      <img src="aix-logo.png" alt="" aria-hidden="true" style="width:15vmin;height:15vmin">
+      <svg viewBox="0 0 1024 1024" style="width:15vmin;height:15vmin" aria-hidden="true">
+        <defs>
+          <linearGradient id="lA" gradientUnits="userSpaceOnUse" x1="150" y1="95" x2="875" y2="625">
+            <stop offset="0" stop-color="#FFC96F"/><stop offset=".22" stop-color="#FFA23A"/>
+            <stop offset=".56" stop-color="#F4652C"/><stop offset="1" stop-color="#D62E39"/></linearGradient>
+          <linearGradient id="lB" gradientUnits="userSpaceOnUse" x1="795" y1="300" x2="255" y2="900">
+            <stop offset="0" stop-color="#FFB253"/><stop offset=".26" stop-color="#F98A30"/>
+            <stop offset=".62" stop-color="#EA4E30"/><stop offset="1" stop-color="#B81C3C"/></linearGradient>
+          <linearGradient id="lC" gradientUnits="userSpaceOnUse" x1="440" y1="215" x2="140" y2="765">
+            <stop offset="0" stop-color="#EF8330"/><stop offset=".42" stop-color="#DE522C"/>
+            <stop offset="1" stop-color="#A5183A"/></linearGradient>
+        </defs>
+        <g transform="translate(512 512) scale(.82134) translate(-520.86 -512)">
+          <path fill="url(#lC)" d="M131.06,624.45c2.13,22.41,8.34,43.79,23.51,62.03c20.25,24.35,51.34,38.04,82.96,34.95c46.31-4.53,88.13-43.24,125.33-68.19c46.74-31.33,93.43-62.75,140.24-94.01c21.02-14.02,45.9-32.57,45.9-60.59c0,0,0.86-25.98-38.54-48.73l-180.85-88.57l4.77-211.36c0,0-195.78,66.27-197.07,152.68c-1.53,78.69-3.07,157.4-4.6,236.1C132.16,566.2,128.35,596.16,131.06,624.45z"/>
+          <path fill="url(#lA)" d="M137.23,307.04c0,0,60.54-168.16,210.22-56.92l493.52,363.06c0,0,85.21-113.78-136.86-331.35L428.86,81.07c0,0-156.85-115.05-262.91,7.19C127.3,149.98,130.1,187.13,137.23,307.04z"/>
+          <path fill="url(#lB)" d="M704.02,281.76c0,0,117.59,130.15-9.54,228.69L266.13,808.88c0,0-60.21,36.82-48.51,98.75c0,0,9.52,64.98,71.48,82.91c0,0,31.18,11.07,88.35-27.9L820.1,655.99c0,0,97.32-56.44,91.26-140.48c0,0,0.27-68.31-85.62-140.63L704.02,281.76z"/>
+        </g>
+      </svg>
     </div>
     <div class="title">Loading</div>
     <div class="sub" id="loadSub"></div>
@@ -104,7 +141,9 @@
     'use strict';
     var DEBUG = false;
     var SHAKA = 'pinned';
-    var BUILD = 'casting-receiver-1.0.0';
+    // Bump on EVERY deployed change. Cast firmware caches receiver pages aggressively, so this tag in
+    // the debug overlay is the only reliable way to tell which build a device is actually running.
+    var BUILD = 'casting-receiver-1.1.0';
     var NS = 'urn:x-cast:com.aixcast.cast';
 
     var dbgEl  = document.getElementById('dbg');
@@ -120,7 +159,16 @@
     }
 
     var lines = [];
-    function applyDbg() { dbgEl.classList.toggle('hidden', !DEBUG); }
+    function applyDbg() {
+      dbgEl.classList.toggle('hidden', !DEBUG);
+      // CAF's own logger follows the same switch. It used to be pinned at DEBUG unconditionally, which
+      // meant every production cast ran the receiver's verbose logging. `context` does not exist until
+      // start-up reaches it and applyDbg() runs before that, hence the guard.
+      try {
+        if (context) context.setLoggerLevel(DEBUG ? cast.framework.LoggerLevel.DEBUG
+                                                  : cast.framework.LoggerLevel.ERROR);
+      } catch (e) {}
+    }
     function dlog(m) {
       try { console.log('[Receiver] ' + m); } catch (e) {}
       if (!DEBUG || !dbgEl) return;
