@@ -8,15 +8,17 @@
 
   <style>
     /* NO @font-face and NO external assets: this page is deployed as ONE file. Cast hardware runs a
-       Chromium build whose font set is essentially Roboto, so name it FIRST — a bare `sans-serif` would
-       land on whatever the firmware picks. The brand faces (Sora / JetBrains Mono) are deliberately gone;
-       shipping 366 KB of TTFs to render two lines of chrome is not a trade worth making, and it forced a
-       multi-file deploy. */
+       Chromium build whose font set is essentially Roboto, so name it FIRST — a bare `sans-serif` lands
+       on whatever the firmware picks. Do not add brand webfonts back: ~366 KB of TTFs to render two
+       lines of chrome is not worth it, and it forces a multi-file deploy. */
     :root {
       --bg:#0a0a0c; --surface:#13131a; --surface2:#1c1c25; --line2:#3a3a48;
       --fg:#f5f5f7; --fg2:#b8b8c2; --fg3:#7a7a86;
-      /* Ember, from the icon kit's palette — the old #FF465B magenta clashed with the new braid mark. */
-      --accent:#EA4E30; --success:#3ec57a; --danger:#ff5a4d;
+      /* Amber — the app's own accent, and the browser TV player's --accent, so every cast surface
+         spins the same colour. Other stops from the icon kit's braid (e.g. ember #EA4E30) are valid
+         kit colours but leave this receiver mismatched with the app and the other TV players; keep
+         this in step with src/Brands/AixApps/CastPlayer/brand.css. */
+      --accent:#FFA23A; --success:#3ec57a; --danger:#ff5a4d;
       --sans:Roboto,'Noto Sans','Segoe UI',system-ui,'Helvetica Neue',Arial,sans-serif;
       --mono:'Roboto Mono','Noto Sans Mono',ui-monospace,'Cascadia Mono',Consolas,monospace;
     }
@@ -143,7 +145,7 @@
     var SHAKA = 'pinned';
     // Bump on EVERY deployed change. Cast firmware caches receiver pages aggressively, so this tag in
     // the debug overlay is the only reliable way to tell which build a device is actually running.
-    var BUILD = 'casting-receiver-1.1.0';
+    var BUILD = 'casting-receiver-1.1.2';
     var NS = 'urn:x-cast:com.aixcast.cast';
 
     var dbgEl  = document.getElementById('dbg');
@@ -161,9 +163,9 @@
     var lines = [];
     function applyDbg() {
       dbgEl.classList.toggle('hidden', !DEBUG);
-      // CAF's own logger follows the same switch. It used to be pinned at DEBUG unconditionally, which
-      // meant every production cast ran the receiver's verbose logging. `context` does not exist until
-      // start-up reaches it and applyDbg() runs before that, hence the guard.
+      // CAF's own logger follows the same switch, so production casts do not run verbose receiver
+      // logging. `context` does not exist until start-up reaches it and applyDbg() runs before that,
+      // hence the guard.
       try {
         if (context) context.setLoggerLevel(DEBUG ? cast.framework.LoggerLevel.DEBUG
                                                   : cast.framework.LoggerLevel.ERROR);
@@ -200,7 +202,13 @@
     var M = cast.framework.messages, E = cast.framework.events.EventType, SYS = cast.framework.system;
     dlog('context + playerManager ok');
     function toSenders(o) { try { context.sendCustomMessage(NS, undefined, o); } catch (e) {} }
-    try { context.setLoggerLevel(cast.framework.LoggerLevel.DEBUG); } catch (e) {}
+    // Re-apply now that `context` EXISTS. The earlier applyDbg() call deliberately no-ops on the
+    // logger — `var context` is hoisted-but-undefined that early, so its `if (context)` guard skips —
+    // which means this is the first point at which the level can actually be set.
+    // ⚠ Keep this routed through applyDbg() so there is ONE switch. Calling setLoggerLevel(DEBUG)
+    // directly here silently defeats that switch: every production cast then runs verbose CAF
+    // logging until some sender happens to push {type:'debug',on:false}.
+    applyDbg();
 
     function on(target, type, fn, label) {
       try {
