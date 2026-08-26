@@ -132,7 +132,7 @@
       <div class="bang">!</div>
       <div class="title">Playback error</div>
       <div class="msg" id="errMsg">This media could not be played on this device.</div>
-      <div class="hint">Cast again from the app to retry.</div>
+      <div class="hint" id="errHint">Cast again from the app to retry.</div>
     </div>
   </div>
 
@@ -150,8 +150,29 @@
     // actually loaded. The hosted page is cached aggressively and sits on the path of every Chromecast
     // cast, so an unbumped redeploy is indistinguishable from a stale cache and makes every subsequent
     // observation unattributable. 1.1.3 = the §67.18#38 MSE probe battery (2026-08-17).
-    var BUILD = 'casting-receiver-1.1.3';
+    // 1.1.4 (2026-08-26, TODO §104 review): the error card now LATCHES so the trailing IDLE status
+    // can't swap it back to "Ready to receive" on a failed cast; a load-replaced-by-load (904) no
+    // longer shows an error; the capabilities push carries the build + the runtime Shaka version; the
+    // error card shows the code; a context.start() throw forces the error screen; the dead SHAKA='hls'
+    // branch (which would have reintroduced the 905/321 bug) is gone.
+    // 1.1.5 (2026-08-26, TODO §104): the H.264/HEVC probe strings now carry ACCURATE levels and a real
+    // "H.264 4K30" row, so the sender no longer manufactures a 1080p H.264 ceiling that downscaled 4K24/30
+    // movies on panels that answer "4K60=N" (P2); and a 60 s watchdog frees the loading spinner if a LOAD
+    // dies with no CAF event at all (P3).
+    var BUILD = 'casting-receiver-1.1.5';
     var NS = 'urn:x-cast:com.aixcast.cast';
+    // Latched by a real ERROR so the IDLE MediaStatus that CAF fires immediately after cannot clobber
+    // the error card back to idle (TODO §104). Cleared when a new LOAD starts or a media actually plays.
+    var inError = false;
+    // Best-effort: the Shaka version CAF actually loaded, read after READY if it is reachable. Reported
+    // so a silent CDN fallback to an old Shaka (the 905/321 class the pin prevents) is visible.
+    var shakaVer = '';
+    // TODO §104 P3: a LOAD that dies WITHOUT any CAF event (an outright-rejected load, or the LAN sender
+    // dying before it serves the manifest) fires no MEDIA_STATUS/ERROR, so the loading spinner would sit
+    // forever. Armed in the LOAD interceptor, cleared by showScreen on ANY move off 'loading' — so it can
+    // only fire when we are genuinely still stuck. 60 s is deliberately generous: a slow 4K transcode's
+    // first fMP4 segment can take 20-40 s, and this must never abort a healthy-but-slow start.
+    var loadWatchdog = null;
 
     var dbgEl  = document.getElementById('dbg');
     var chrome = document.getElementById('chrome');
@@ -159,6 +180,9 @@
     var pillTxt  = document.getElementById('pillTxt');
 
     function showScreen(name) {
+      // Any move OFF the loading spinner cancels its watchdog (TODO §104 P3) — a real cast reaching
+      // none/idle/error clears it, so the watchdog only ever fires on a genuinely stranded load.
+      if (name !== 'loading' && loadWatchdog) { try { clearTimeout(loadWatchdog); } catch (e) {} loadWatchdog = null; }
       ['idle','loading','error'].forEach(function (s) {
         document.getElementById(s).classList.toggle('hidden', s !== name);
       });
@@ -231,7 +255,16 @@
     on(context, SYS.EventType.SENDER_DISCONNECTED, function () { updatePill(); }, 'SENDER_DISCONNECTED');
 
     pm.setMessageInterceptor(M.MessageType.LOAD, function (req) {
+      inError = false;             // a new cast clears any prior error latch
       showScreen('loading');
+      // Arm the stranded-load watchdog (TODO §104 P3). showScreen('loading') does NOT clear it; the first
+      // MEDIA_STATUS/ERROR/FINISHED that moves us off 'loading' does. If nothing arrives, fall back to idle.
+      if (loadWatchdog) { try { clearTimeout(loadWatchdog); } catch (e) {} }
+      loadWatchdog = setTimeout(function () {
+        loadWatchdog = null;
+        dlog('LOAD watchdog: 60s on the loading screen with no state change → idle');
+        showScreen('idle');
+      }, 60000);
       try {
         var m = req.media || {};
         var title = (m.metadata && (m.metadata.title || m.metadata.subtitle)) || '';
@@ -246,15 +279,27 @@
     }, 'PLAYER_LOAD_COMPLETE');
     on(pm, E.MEDIA_STATUS, function () {
       var st = ''; try { st = pm.getPlayerState(); } catch (e) {}
-      if (st === 'PLAYING' || st === 'PAUSED') showScreen('none');
-      else if (st === 'IDLE') showScreen('idle');
+      if (st === 'PLAYING' || st === 'PAUSED') { inError = false; showScreen('none'); }
+      // A failed LOAD fires ERROR *and then* an IDLE status (idleReason=ERROR); do not let that IDLE
+      // clobber the error card the ERROR handler just showed (TODO §104).
+      else if (st === 'IDLE') { if (!inError) showScreen('idle'); }
     }, 'MEDIA_STATUS');
-    on(pm, E.MEDIA_FINISHED, function () { dlog('MEDIA_FINISHED'); showScreen('idle'); }, 'MEDIA_FINISHED');
+    on(pm, E.MEDIA_FINISHED, function () { dlog('MEDIA_FINISHED'); if (!inError) showScreen('idle'); }, 'MEDIA_FINISHED');
     on(pm, E.ERROR, function (e) {
-      dlog('ERROR code=' + e.detailedErrorCode + ' reason=' + (e.error && (e.error.reason || e.error.type) || '?'));
+      var code = e.detailedErrorCode;
+      dlog('ERROR code=' + code + ' reason=' + (e.error && (e.error.reason || e.error.type) || '?'));
+      // 904 = LOAD_INTERRUPTED: a load replaced by a newer one (a queue skip / rapid re-cast), not a
+      // fatal error. Do not show the error card or push an error for it — it would sit through the next
+      // video's whole buffering and pollute the sender diag.
+      if (code === 904) return;
+      inError = true;
       document.getElementById('errMsg').textContent = 'This media could not be played on this device.';
+      try {
+        var hintEl = document.getElementById('errHint');
+        if (hintEl) hintEl.textContent = 'Cast again from the app to retry.' + (code != null ? ' (code ' + code + ')' : '');
+      } catch (e2) {}
       showScreen('error');
-      toSenders({ type: 'error', detailedErrorCode: e.detailedErrorCode, reason: e.error && (e.error.reason || e.error.type) });
+      toSenders({ type: 'error', detailedErrorCode: code, reason: e.error && (e.error.reason || e.error.type) });
     }, 'ERROR');
 
     function probeCaps() {
@@ -267,9 +312,15 @@
       var dvOk  = devCap(DC.IS_DV_SUPPORTED)  || devCap('is_dv_supported');
 
       var want = [
+        // ⚠ Codec strings must be ACCURATE per label (TODO §104): the sender's BuildVideoCodecMax reads
+        // "4K30=Y beside 4K60=N" as SAME size class → no 1080p ceiling, so a panel that does 4K H.264 at
+        // 24/30 but not 60 must get a real 4K30 row. avc1.640033 = H.264 High L5.1 (max ~4K30);
+        // avc1.640034 = L5.2 (real 4K60). Without the 4K30 row a 4K30 panel answered only "4K60=N" and
+        // its 4K H.264 movies were needlessly downscaled to 1080p.
         ['H.264 1080p',   'video/mp4',  'avc1.640028',                  1920, 1080, 30, false],
-        ['H.264 4K60',    'video/mp4',  'avc1.640033',                  3840, 2160, 60, false],
-        ['HEVC 1080p',    'video/mp4',  'hev1.1.6.L93.B0',              1920, 1080, 30, false],
+        ['H.264 4K30',    'video/mp4',  'avc1.640033',                  3840, 2160, 30, false],
+        ['H.264 4K60',    'video/mp4',  'avc1.640034',                  3840, 2160, 60, false],
+        ['HEVC 1080p',    'video/mp4',  'hev1.1.6.L120.B0',             1920, 1080, 30, false],
         ['HEVC 4K60',     'video/mp4',  'hev1.1.6.L153.B0',             3840, 2160, 60, false],
         ['HEVC 4K60 HDR', 'video/mp4',  'hev1.2.4.L153.B0',             3840, 2160, 60, true ],
         ['VP9 4K60',      'video/webm', 'vp09.00.51.08.01.01.01.01.00', 3840, 2160, 60, false],
@@ -327,10 +378,11 @@
         } catch (e) { mok = false; }
         caps[mseWant[j][0]] = mok;
       }
-      dlog('caps H264-4K60=' + caps['H.264 4K60'] + ' HEVC-4K60=' + caps['HEVC 4K60'] +
+      dlog('caps H264-4K30=' + caps['H.264 4K30'] + ' H264-4K60=' + caps['H.264 4K60'] + ' HEVC-4K60=' + caps['HEVC 4K60'] +
            ' HEVC-4K60-HDR=' + caps['HEVC 4K60 HDR'] + ' VP9-4K60=' + caps['VP9 4K60'] +
            ' AV1-4K60=' + caps['AV1 4K60'] + ' hdr=' + hdrOk + ' dv=' + dvOk);
-      toSenders({ type: 'capabilities', codecs: caps, hdr: hdrOk, dv: dvOk, device: dev, deviceInfo: dev2 });
+      toSenders({ type: 'capabilities', codecs: caps, hdr: hdrOk, dv: dvOk, device: dev, deviceInfo: dev2,
+                  build: BUILD, shakaVersion: shakaVer });
     }
     try {
       context.addCustomMessageListener(NS, function (ev) {
@@ -341,20 +393,25 @@
     } catch (e) { dlog('ERR addCustomMessageListener: ' + (e && e.message || e)); }
 
     var options = new cast.framework.CastReceiverOptions();
+    // SHAKA is fixed 'pinned', and the pin is load-bearing: shakaVersion MUST be set with useShakaForHls
+    // or CAF falls back to its old bundled Shaka (the 905/321 class on demuxed HLS). The former
+    // `else if (SHAKA === 'hls')` branch set useShakaForHls WITHOUT a version — i.e. exactly that bug —
+    // and was unreachable, so it is removed rather than left as an editing attractor (TODO §104).
     if (SHAKA === 'pinned') {
       options.useShakaForHls = true;
       options.shakaVersion = '4.15.35';
-    } else if (SHAKA === 'hls') {
-      options.useShakaForHls = true;
     }
     options.customNamespaces = {}; options.customNamespaces[NS] = SYS.MessageType.JSON;
     on(context, SYS.EventType.READY, function () {
+      // Best-effort read of the Shaka CAF actually loaded — guarded, absence must not throw. If it ever
+      // reads something other than the pin, a silent CDN fallback happened (TODO §104).
+      try { if (window.shaka && window.shaka.Player && window.shaka.Player.version) shakaVer = String(window.shaka.Player.version); } catch (e) {}
       showScreen('idle'); updatePill();
-      dlog('READY ok (shaka=' + SHAKA + ')'); probeCaps();
+      dlog('READY ok (shaka=' + SHAKA + (shakaVer ? ' v' + shakaVer : ' v?') + ')'); probeCaps();
     }, 'READY');
     dlog('calling context.start (shaka=' + SHAKA + ')…');
     try { context.start(options); dlog('context.start returned'); }
-    catch (e) { dlog('ERR context.start: ' + (e && e.message || e)); }
+    catch (e) { DEBUG = true; applyDbg(); dlog('ERR context.start: ' + (e && e.message || e)); showScreen('error'); }
   })();
   </script>
 </body>
