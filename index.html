@@ -159,7 +159,14 @@
     // "H.264 4K30" row, so the sender no longer manufactures a 1080p H.264 ceiling that downscaled 4K24/30
     // movies on panels that answer "4K60=N" (P2); and a 60 s watchdog frees the loading spinner if a LOAD
     // dies with no CAF event at all (P3).
-    var BUILD = 'casting-receiver-1.1.5';
+    // 1.1.6 (2026-09-16): the Shaka pin moves 4.15.35 -> 4.15.56. CAF Web Receiver 3.0.0156 (previewed
+    // 2026-07-16, rollout completed 2026-09-09) made 4.15.56 the DEFAULT and, per the CastReceiverOptions
+    // reference, redefined the supported band as >=4.15.56 <5.0.0 — everything from 2.5.6 up to 4.15.55 is
+    // now "deprecated but still compatible". So 4.15.35, which was the CAF default when this pin was
+    // written (3.0.0150, 2026-04-06), had quietly become a deprecated version we were asking for by name.
+    // The pin itself STAYS: it is what stops a CDN or rollout change moving the player under us without a
+    // redeploy, which is the whole reason the READY line reports the version it actually loaded.
+    var BUILD = 'casting-receiver-1.1.6';
     var NS = 'urn:x-cast:com.aixcast.cast';
     // Latched by a real ERROR so the IDLE MediaStatus that CAF fires immediately after cannot clobber
     // the error card back to idle (TODO §104). Cleared when a new LOAD starts or a media actually plays.
@@ -399,7 +406,11 @@
     // and was unreachable, so it is removed rather than left as an editing attractor (TODO §104).
     if (SHAKA === 'pinned') {
       options.useShakaForHls = true;
-      options.shakaVersion = '4.15.35';
+      // 4.15.56 is CAF's own default since 3.0.0156 and the FLOOR of the supported band
+      // (>=4.15.56 <5.0.0). Naming it explicitly keeps the guarantee the pin exists for — a rollout
+      // cannot move the player under a cached receiver page — while staying out of the deprecated
+      // range 4.15.35 had fallen into. Raise it deliberately, never drop it.
+      options.shakaVersion = '4.15.56';
     }
     options.customNamespaces = {}; options.customNamespaces[NS] = SYS.MessageType.JSON;
     on(context, SYS.EventType.READY, function () {
