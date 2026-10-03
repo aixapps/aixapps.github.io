@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>AIX Casting Receiver</title>
+  <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
+
+  <style>
+    :root {
+      --bg:#0a0a0c; --surface:#13131a; --surface2:#1c1c25; --line2:#3a3a48;
+      --fg:#f5f5f7; --fg2:#b8b8c2; --fg3:#7a7a86;
+      --accent:#FFA23A; --success:#3ec57a; --danger:#ff5a4d;
+      --sans:Roboto,'Noto Sans','Segoe UI',system-ui,'Helvetica Neue',Arial,sans-serif;
+      --mono:'Roboto Mono','Noto Sans Mono',ui-monospace,'Cascadia Mono',Consolas,monospace;
+    }
+    html, body { margin:0; height:100%; background:var(--bg); overflow:hidden; color:var(--fg);
+      font-family:var(--sans); -webkit-font-smoothing:antialiased; }
+    cast-media-player { position:absolute; inset:0; width:100%; height:100%; }
+
+    .screen { position:absolute; inset:0; z-index:9990; background:var(--bg);
+      display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; }
+    .screen.hidden { display:none; }
+    .logo svg { display:block; }
+    .title { font-weight:600; color:var(--fg); margin-top:3.2vmin; font-size:4.4vmin; letter-spacing:.2px; }
+    .sub   { font-family:var(--mono); color:var(--fg3); margin-top:1.4vmin; font-size:2.2vmin; }
+
+    #chrome { position:absolute; inset:0; z-index:9995; pointer-events:none; }
+    #chrome.hidden { display:none; }
+    #wordmark { position:absolute; left:5vmin; top:4.4vmin; color:var(--fg2);
+      font-weight:700; font-size:3vmin; letter-spacing:.3px; }
+    #pill { position:absolute; right:5vmin; top:4vmin; display:flex; align-items:center; gap:1.4vmin;
+      background:var(--surface2); border-radius:999px; padding:1.1vmin 2.2vmin 1.1vmin 1.8vmin; }
+    #pillTxt { font-weight:600; font-size:2.4vmin; color:var(--fg2); }
+    #pillIcon { width:2.2vmin; height:2.2vmin; flex:0 0 auto; }
+    #pillIcon.dot { border-radius:50%; background:var(--success); }
+    #pillIcon.spin { border-radius:50%; border:0.42vmin solid var(--line2); border-top-color:var(--fg2);
+      animation:spin 0.8s linear infinite; }
+    @keyframes spin { to { transform:rotate(360deg); } }
+
+    .lspin { width:5vmin; height:5vmin; margin-top:3.4vmin; border-radius:50%;
+      border:0.55vmin solid var(--surface2); border-top-color:var(--accent); animation:spin 0.9s linear infinite; }
+
+    #error .card { width:62vw; max-width:1000px; background:var(--surface);
+      border:2px solid var(--line2); border-radius:2vmin; padding:5vmin 4vmin; }
+    #error .bang { font-weight:700; font-size:7vmin; color:var(--danger); line-height:1; }
+    #error .msg  { color:var(--fg2); font-size:2.8vmin; margin-top:2vmin; }
+    #error .hint { font-family:var(--mono); color:var(--fg3); font-size:2vmin; margin-top:2.6vmin; }
+
+    #dbg { position:absolute; left:1.5vmin; top:1.5vmin; z-index:10000; max-width:70vw; max-height:60vh;
+      overflow:hidden; font:2.2vmin/1.35 var(--mono); color:#0f0; white-space:pre-wrap;
+      background:rgba(0,0,0,0.55); padding:1vmin 1.5vmin; border-radius:0.8vmin; text-shadow:0 0 2px #000; }
+    #dbg.hidden { display:none; }
+  </style>
+</head>
+<body>
+  <cast-media-player></cast-media-player>
+
+  <div id="chrome" class="hidden">
+    <div id="wordmark">AIX Casting Receiver</div>
+    <div id="pill"><span id="pillIcon" class="spin"></span><span id="pillTxt">Waiting…</span></div>
+  </div>
+
+  <div id="idle" class="screen hidden">
+    <div class="logo">
+      <svg viewBox="0 0 1024 1024" style="width:24vmin;height:24vmin" role="img" aria-label="AIX Casting Receiver">
+        <defs>
+          <linearGradient id="iA" gradientUnits="userSpaceOnUse" x1="150" y1="95" x2="875" y2="625">
+            <stop offset="0" stop-color="#FFC96F"/><stop offset=".22" stop-color="#FFA23A"/>
+            <stop offset=".56" stop-color="#F4652C"/><stop offset="1" stop-color="#D62E39"/></linearGradient>
+          <linearGradient id="iB" gradientUnits="userSpaceOnUse" x1="795" y1="300" x2="255" y2="900">
+            <stop offset="0" stop-color="#FFB253"/><stop offset=".26" stop-color="#F98A30"/>
+            <stop offset=".62" stop-color="#EA4E30"/><stop offset="1" stop-color="#B81C3C"/></linearGradient>
+          <linearGradient id="iC" gradientUnits="userSpaceOnUse" x1="440" y1="215" x2="140" y2="765">
+            <stop offset="0" stop-color="#EF8330"/><stop offset=".42" stop-color="#DE522C"/>
+            <stop offset="1" stop-color="#A5183A"/></linearGradient>
+        </defs>
+        <g transform="translate(512 512) scale(.82134) translate(-520.86 -512)">
+          <path fill="url(#iC)" d="M131.06,624.45c2.13,22.41,8.34,43.79,23.51,62.03c20.25,24.35,51.34,38.04,82.96,34.95c46.31-4.53,88.13-43.24,125.33-68.19c46.74-31.33,93.43-62.75,140.24-94.01c21.02-14.02,45.9-32.57,45.9-60.59c0,0,0.86-25.98-38.54-48.73l-180.85-88.57l4.77-211.36c0,0-195.78,66.27-197.07,152.68c-1.53,78.69-3.07,157.4-4.6,236.1C132.16,566.2,128.35,596.16,131.06,624.45z"/>
+          <path fill="url(#iA)" d="M137.23,307.04c0,0,60.54-168.16,210.22-56.92l493.52,363.06c0,0,85.21-113.78-136.86-331.35L428.86,81.07c0,0-156.85-115.05-262.91,7.19C127.3,149.98,130.1,187.13,137.23,307.04z"/>
+          <path fill="url(#iB)" d="M704.02,281.76c0,0,117.59,130.15-9.54,228.69L266.13,808.88c0,0-60.21,36.82-48.51,98.75c0,0,9.52,64.98,71.48,82.91c0,0,31.18,11.07,88.35-27.9L820.1,655.99c0,0,97.32-56.44,91.26-140.48c0,0,0.27-68.31-85.62-140.63L704.02,281.76z"/>
+        </g>
+      </svg>
+    </div>
+    <div class="title">Ready to receive</div>
+    <div class="sub" id="idleSub">Cast a video from your phone or computer</div>
+  </div>
+
+  <div id="loading" class="screen hidden">
+    <div class="logo">
+      <svg viewBox="0 0 1024 1024" style="width:15vmin;height:15vmin" aria-hidden="true">
+        <defs>
+          <linearGradient id="lA" gradientUnits="userSpaceOnUse" x1="150" y1="95" x2="875" y2="625">
+            <stop offset="0" stop-color="#FFC96F"/><stop offset=".22" stop-color="#FFA23A"/>
+            <stop offset=".56" stop-color="#F4652C"/><stop offset="1" stop-color="#D62E39"/></linearGradient>
+          <linearGradient id="lB" gradientUnits="userSpaceOnUse" x1="795" y1="300" x2="255" y2="900">
+            <stop offset="0" stop-color="#FFB253"/><stop offset=".26" stop-color="#F98A30"/>
+            <stop offset=".62" stop-color="#EA4E30"/><stop offset="1" stop-color="#B81C3C"/></linearGradient>
+          <linearGradient id="lC" gradientUnits="userSpaceOnUse" x1="440" y1="215" x2="140" y2="765">
+            <stop offset="0" stop-color="#EF8330"/><stop offset=".42" stop-color="#DE522C"/>
+            <stop offset="1" stop-color="#A5183A"/></linearGradient>
+        </defs>
+        <g transform="translate(512 512) scale(.82134) translate(-520.86 -512)">
+          <path fill="url(#lC)" d="M131.06,624.45c2.13,22.41,8.34,43.79,23.51,62.03c20.25,24.35,51.34,38.04,82.96,34.95c46.31-4.53,88.13-43.24,125.33-68.19c46.74-31.33,93.43-62.75,140.24-94.01c21.02-14.02,45.9-32.57,45.9-60.59c0,0,0.86-25.98-38.54-48.73l-180.85-88.57l4.77-211.36c0,0-195.78,66.27-197.07,152.68c-1.53,78.69-3.07,157.4-4.6,236.1C132.16,566.2,128.35,596.16,131.06,624.45z"/>
+          <path fill="url(#lA)" d="M137.23,307.04c0,0,60.54-168.16,210.22-56.92l493.52,363.06c0,0,85.21-113.78-136.86-331.35L428.86,81.07c0,0-156.85-115.05-262.91,7.19C127.3,149.98,130.1,187.13,137.23,307.04z"/>
+          <path fill="url(#lB)" d="M704.02,281.76c0,0,117.59,130.15-9.54,228.69L266.13,808.88c0,0-60.21,36.82-48.51,98.75c0,0,9.52,64.98,71.48,82.91c0,0,31.18,11.07,88.35-27.9L820.1,655.99c0,0,97.32-56.44,91.26-140.48c0,0,0.27-68.31-85.62-140.63L704.02,281.76z"/>
+        </g>
+      </svg>
+    </div>
+    <div class="title">Loading</div>
+    <div class="sub" id="loadSub"></div>
+    <div class="lspin"></div>
+  </div>
+
+  <div id="error" class="screen hidden">
+    <div class="card">
+      <div class="bang">!</div>
+      <div class="title">Playback error</div>
+      <div class="msg" id="errMsg">This media could not be played on this device.</div>
+      <div class="hint" id="errHint">Cast again from the app to retry.</div>
+    </div>
+  </div>
+
+  <div id="dbg" class="hidden">receiver: booting…</div>
+
+  <script>
+  (function () {
+    'use strict';
+    var DEBUG = false;
+    var SHAKA = 'pinned';
+    var BUILD = 'casting-receiver-1.1.10';
+    var NS = 'urn:x-cast:com.aixcast.cast';
+    var inError = false;
+    var shakaVer = '';
+    var shakaProbe = 'not-probed';
+    function readShakaVer() {
+      if (!shakaVer) {
+        try {
+          var sp = window.shaka;
+          if (!sp || !sp.Player) shakaProbe = 'no-global';
+          else if (!sp.Player.version) shakaProbe = 'no-version';
+          else { shakaVer = String(sp.Player.version); shakaProbe = 'ok'; }
+        } catch (e) { shakaProbe = 'threw'; }
+      }
+      return shakaVer;
+    }
+    var shakaReported = false;
+    var loadWatchdog = null;
+
+    var dbgEl  = document.getElementById('dbg');
+    var chrome = document.getElementById('chrome');
+    var pillIcon = document.getElementById('pillIcon');
+    var pillTxt  = document.getElementById('pillTxt');
+
+    function showScreen(name) {
+      if (name !== 'loading' && loadWatchdog) { try { clearTimeout(loadWatchdog); } catch (e) {} loadWatchdog = null; }
+      ['idle','loading','error'].forEach(function (s) {
+        document.getElementById(s).classList.toggle('hidden', s !== name);
+      });
+      chrome.classList.toggle('hidden', name !== 'idle');
+    }
+
+    var lines = [];
+    function applyDbg() {
+      dbgEl.classList.toggle('hidden', !DEBUG);
+      try {
+        if (context) context.setLoggerLevel(DEBUG ? cast.framework.LoggerLevel.DEBUG
+                                                  : cast.framework.LoggerLevel.ERROR);
+      } catch (e) {}
+    }
+    function dlog(m) {
+      try { console.log('[Receiver] ' + m); } catch (e) {}
+      if (!DEBUG || !dbgEl) return;
+      lines.push(m); while (lines.length > 14) lines.shift();
+      dbgEl.textContent = 'build: ' + BUILD + '\n' + lines.join('\n');
+    }
+    applyDbg();
+
+    window.addEventListener('error', function (ev) {
+      DEBUG = true; applyDbg();
+      dlog('WINDOW ERROR: ' + (ev.message || '') + ' @' + String(ev.filename || '').slice(-28) + ':' + (ev.lineno || '?'));
+    });
+    window.addEventListener('unhandledrejection', function (ev) {
+      DEBUG = true; applyDbg();
+      dlog('PROMISE REJECT: ' + ((ev.reason && ev.reason.message) || ev.reason || '?'));
+    });
+
+    showScreen('idle');
+
+    if (typeof cast === 'undefined' || !cast.framework) {
+      DEBUG = true; applyDbg();
+      if (dbgEl) dbgEl.textContent = 'build: ' + BUILD + '\nFATAL: CAF SDK did not load (script blocked / URL dead)';
+      showScreen('error');
+      return;
+    }
+
+    var context = cast.framework.CastReceiverContext.getInstance();
+    var pm = context.getPlayerManager();
+    var M = cast.framework.messages, E = cast.framework.events.EventType, SYS = cast.framework.system;
+    dlog('context + playerManager ok');
+    function toSenders(o) { try { context.sendCustomMessage(NS, undefined, o); } catch (e) {} }
+    applyDbg();
+
+    function on(target, type, fn, label) {
+      try {
+        if (type === undefined || type === null) { dlog('skip ' + label + ' (no such EventType)'); return; }
+        target.addEventListener(type, fn);
+      } catch (e) { dlog('ERR ' + label + ': ' + (e && e.message || e)); }
+    }
+
+    var CAPTION_BG = 'rgba(0,0,0,0.5)';
+    var CAPTION_CSS =
+      'video::cue{background-color:' + CAPTION_BG + ' !important;color:#fff !important;text-shadow:none !important;}' +
+      '.shaka-text-container span{background-color:' + CAPTION_BG + ' !important;color:#fff !important;' +
+      'text-shadow:none !important;border-radius:8px;padding:0.1em 0.35em;' +
+      '-webkit-box-decoration-break:clone;box-decoration-break:clone;}';
+    function appleTextStyle() {
+      var s = new M.TextTrackStyle();
+      s.foregroundColor = '#FFFFFFFF';
+      s.backgroundColor = '#00000080';
+      s.edgeType = M.TextTrackEdgeType.NONE;
+      s.windowType = M.TextTrackWindowType.NONE;
+      s.fontGenericFamily = M.TextTrackFontGenericFamily.SANS_SERIF;
+      return s;
+    }
+    function findVideo(r) {
+      try { if (pm.getMediaElement) { var v = pm.getMediaElement(); if (v) { r.videoVia = 'player'; return v; } } } catch (e) {}
+      try {
+        var cmp = document.querySelector('cast-media-player'), sr = cmp && cmp.shadowRoot;
+        if (sr) { var v2 = sr.querySelector('video'); if (v2) { r.videoVia = 'shadow'; return v2; } }
+        r.shadowOpen = !!sr;
+      } catch (e) {}
+      try { var v3 = document.querySelector('video'); if (v3) { r.videoVia = 'document'; return v3; } } catch (e) {}
+      r.videoVia = 'none';
+      return null;
+    }
+    function injectCaptionCss(root) {
+      var id = 'aixCaptionStyle';
+      var existing = root.getElementById ? root.getElementById(id) : root.querySelector('#' + id);
+      if (existing) return false;
+      var el = document.createElement('style');
+      el.id = id; el.textContent = CAPTION_CSS;
+      (root === document ? document.head : root).appendChild(el);
+      return true;
+    }
+    function cueRulesOf(root) {
+      var out = [];
+      try {
+        var sheets = [].slice.call(root.styleSheets || []);
+        if (root.adoptedStyleSheets) sheets = sheets.concat([].slice.call(root.adoptedStyleSheets));
+        for (var i = 0; i < sheets.length; i++) {
+          var rules;
+          try {
+            if (sheets[i].ownerNode && sheets[i].ownerNode.id === 'aixCaptionStyle') continue;
+            rules = sheets[i].cssRules;
+          } catch (e) { continue; }
+          for (var j = 0; rules && j < rules.length; j++) {
+            var t = rules[j].cssText || '';
+            if (t.indexOf('cue') >= 0) out.push(t.slice(0, 160));
+          }
+        }
+      } catch (e) {}
+      return out;
+    }
+    var captionsReported = '';
+    function styleCaptions(why) {
+      var r = { type: 'captions', build: BUILD, why: why };
+      try { pm.getTextTracksManager().setTextTrackStyle(appleTextStyle()); r.caf = 'ok'; }
+      catch (e) { r.caf = 'threw: ' + (e && e.message || e); }
+      try {
+        r.cssDocument = injectCaptionCss(document) ? 'added' : 'present';
+        var v = findVideo(r);
+        if (v) {
+          var rn = v.getRootNode ? v.getRootNode() : document;
+          r.root = rn === document ? 'document' : 'shadow';
+          if (rn !== document) r.cssShadow = injectCaptionCss(rn) ? 'added' : 'present';
+          r.shakaContainer = !!((rn.querySelector && rn.querySelector('.shaka-text-container'))
+                                || document.querySelector('.shaka-text-container'));
+          if (v.textTracks) {
+            var showing = 0;
+            for (var j = 0; j < v.textTracks.length; j++) if (v.textTracks[j].mode === 'showing') showing++;
+            r.textTracks = v.textTracks.length; r.showing = showing;
+          }
+          if (v.parentNode && v.parentNode.children) {
+            var kids = [], ch = v.parentNode.children;
+            for (var k = 0; k < ch.length && k < 10; k++)
+              kids.push(ch[k].tagName.toLowerCase() + (ch[k].className ? '.' + String(ch[k].className).trim().split(/\s+/).join('.') : ''));
+            r.siblings = kids.join(' ');
+          }
+        }
+        var cue = cueRulesOf(document), vr = v && v.getRootNode ? v.getRootNode() : document;
+        if (vr !== document) cue = cue.concat(cueRulesOf(vr));
+        r.cafCue = cue.slice(0, 4);
+      } catch (e) { r.css = 'threw: ' + (e && e.message || e); }
+      var key = JSON.stringify(r);
+      if (key !== captionsReported) { captionsReported = key; toSenders(r); dlog('captions ' + key.slice(0, 200)); }
+    }
+
+    function updatePill() {
+      var n = 0; try { n = (context.getSenders() || []).length; } catch (e) {}
+      if (n > 0) { pillIcon.className = 'dot'; pillTxt.textContent = 'Connected'; pillTxt.style.color = 'var(--success)'; }
+      else       { pillIcon.className = 'spin'; pillTxt.textContent = 'Waiting…';  pillTxt.style.color = 'var(--fg2)'; }
+    }
+    on(context, SYS.EventType.SENDER_CONNECTED, updatePill, 'SENDER_CONNECTED');
+    on(context, SYS.EventType.SENDER_DISCONNECTED, function () { updatePill(); }, 'SENDER_DISCONNECTED');
+
+    pm.setMessageInterceptor(M.MessageType.LOAD, function (req) {
+      inError = false;
+      showScreen('loading');
+      if (loadWatchdog) { try { clearTimeout(loadWatchdog); } catch (e) {} }
+      loadWatchdog = setTimeout(function () {
+        loadWatchdog = null;
+        dlog('LOAD watchdog: 60s on the loading screen with no state change → idle');
+        showScreen('idle');
+      }, 60000);
+      try { if (req.media) req.media.textTrackStyle = appleTextStyle(); } catch (e) {}
+      try {
+        var m = req.media || {};
+        var title = (m.metadata && (m.metadata.title || m.metadata.subtitle)) || '';
+        document.getElementById('loadSub').textContent = title;
+        dlog('LOAD ct=' + (m.contentType || '?') + ' url=' + String(m.contentUrl || m.contentId || '').slice(-48));
+      } catch (e) {}
+      return req;
+    });
+    try {
+      pm.setMessageInterceptor(M.MessageType.EDIT_TRACKS_INFO, function (req) {
+        try { req.textTrackStyle = appleTextStyle(); } catch (e) {}
+        setTimeout(function () { try { styleCaptions('tracks'); } catch (e) {} }, 700);
+        return req;
+      });
+    } catch (e) { dlog('ERR EDIT_TRACKS_INFO interceptor: ' + (e && e.message || e)); }
+    on(pm, E.PLAYER_LOAD_COMPLETE, function () {
+      var n = 0; try { n = (((pm.getMediaInformation() || {}).tracks) || []).length; } catch (e) {}
+      dlog('LOAD_COMPLETE tracks=' + n);
+      try { styleCaptions('load'); } catch (e) {}
+      setTimeout(function () { try { styleCaptions('load+5s'); } catch (e) {} }, 5000);
+      try {
+        if (!shakaReported && readShakaVer()) {
+          dlog('shaka now readable v' + shakaVer + ' — re-sending capabilities');
+          probeCaps();
+        }
+      } catch (e) { dlog('ERR shaka re-probe: ' + (e && e.message || e)); }
+    }, 'PLAYER_LOAD_COMPLETE');
+    on(pm, E.MEDIA_STATUS, function () {
+      var st = ''; try { st = pm.getPlayerState(); } catch (e) {}
+      if (st === 'PLAYING' || st === 'PAUSED') { inError = false; showScreen('none'); }
+      else if (st === 'IDLE') { if (!inError) showScreen('idle'); }
+    }, 'MEDIA_STATUS');
+    on(pm, E.MEDIA_FINISHED, function () { dlog('MEDIA_FINISHED'); if (!inError) showScreen('idle'); }, 'MEDIA_FINISHED');
+    on(pm, E.ERROR, function (e) {
+      var code = e.detailedErrorCode;
+      dlog('ERROR code=' + code + ' reason=' + (e.error && (e.error.reason || e.error.type) || '?'));
+      if (code === 904) return;
+      inError = true;
+      document.getElementById('errMsg').textContent = 'This media could not be played on this device.';
+      try {
+        var hintEl = document.getElementById('errHint');
+        if (hintEl) hintEl.textContent = 'Cast again from the app to retry.' + (code != null ? ' (code ' + code + ')' : '');
+      } catch (e2) {}
+      showScreen('error');
+      toSenders({ type: 'error', detailedErrorCode: code, reason: e.error && (e.error.reason || e.error.type) });
+    }, 'ERROR');
+
+    function probeCaps() {
+      var dev = null, dev2 = null;
+      try { if (context.getDeviceCapabilities) dev = context.getDeviceCapabilities(); } catch (e) {}
+      try { if (context.getDeviceInformation) dev2 = context.getDeviceInformation(); } catch (e) {}
+      var DC = (cast.framework.system && cast.framework.system.DeviceCapabilities) || {};
+      function devCap(k) { try { return !!(dev && k && dev[k]); } catch (e) { return false; } }
+      var hdrOk = devCap(DC.IS_HDR_SUPPORTED) || devCap('is_hdr_supported');
+      var dvOk  = devCap(DC.IS_DV_SUPPORTED)  || devCap('is_dv_supported');
+
+      var want = [
+        ['H.264 1080p',   'video/mp4',  'avc1.640028',                  1920, 1080, 30, false],
+        ['H.264 4K30',    'video/mp4',  'avc1.640033',                  3840, 2160, 30, false],
+        ['H.264 4K60',    'video/mp4',  'avc1.640034',                  3840, 2160, 60, false],
+        ['HEVC 1080p',    'video/mp4',  'hev1.1.6.L120.B0',             1920, 1080, 30, false],
+        ['HEVC 4K60',     'video/mp4',  'hev1.1.6.L153.B0',             3840, 2160, 60, false],
+        ['HEVC 4K60 HDR', 'video/mp4',  'hev1.2.4.L153.B0',             3840, 2160, 60, true ],
+        ['VP9 4K60',      'video/webm', 'vp09.00.51.08.01.01.01.01.00', 3840, 2160, 60, false],
+        ['VP9 4K60 HDR',  'video/webm', 'vp09.02.51.10.01.09.16.09.00', 3840, 2160, 60, true ],
+        ['AV1 1080p',     'video/mp4',  'av01.0.05M.08',                1920, 1080, 30, false],
+        ['AV1 4K60',      'video/mp4',  'av01.0.13M.08',                3840, 2160, 60, false],
+        ['AAC',   'audio/mp4',  'mp4a.40.2'],
+        ['AC-3',  'audio/mp4',  'ac-3'],
+        ['E-AC-3','audio/mp4',  'ec-3'],
+        ['Opus',  'audio/webm', 'opus'],
+        ['FLAC',  'audio/mp4',  'flac'],
+      ];
+      var caps = {};
+      for (var i = 0; i < want.length; i++) {
+        var a = want[i], ok = false;
+        try { ok = context.canDisplayType(a[1], a[2], a[3] || undefined, a[4] || undefined, a[5] || undefined); } catch (e) {}
+        if (a[6] && ok) ok = hdrOk;
+        caps[a[0]] = ok;
+      }
+
+      var mseWant = [
+        ['MSE H.264 1080p', 'video/mp4; codecs="avc1.640028"'],
+        ['MSE H.264 4K',    'video/mp4; codecs="avc1.640033"'],
+        ['MSE HEVC 1080p',  'video/mp4; codecs="hev1.1.6.L93.B0"'],
+        ['MSE HEVC 4K',     'video/mp4; codecs="hev1.1.6.L153.B0"'],
+        ['MSE VP9 4K',      'video/webm; codecs="vp09.00.51.08"']
+      ];
+      for (var j = 0; j < mseWant.length; j++) {
+        var mok = false;
+        try {
+          mok = !!(window.MediaSource && window.MediaSource.isTypeSupported
+                   && window.MediaSource.isTypeSupported(mseWant[j][1]));
+        } catch (e) { mok = false; }
+        caps[mseWant[j][0]] = mok;
+      }
+      dlog('caps H264-4K30=' + caps['H.264 4K30'] + ' H264-4K60=' + caps['H.264 4K60'] + ' HEVC-4K60=' + caps['HEVC 4K60'] +
+           ' HEVC-4K60-HDR=' + caps['HEVC 4K60 HDR'] + ' VP9-4K60=' + caps['VP9 4K60'] +
+           ' AV1-4K60=' + caps['AV1 4K60'] + ' hdr=' + hdrOk + ' dv=' + dvOk);
+      var sv = readShakaVer();
+      if (sv) shakaReported = true;
+      toSenders({ type: 'capabilities', codecs: caps, hdr: hdrOk, dv: dvOk, device: dev, deviceInfo: dev2,
+                  build: BUILD, shakaVersion: sv, shakaProbe: shakaProbe });
+    }
+    try {
+      context.addCustomMessageListener(NS, function (ev) {
+        var d = ev.data || {};
+        if (d.type === 'getCaps') probeCaps();
+        else if (d.type === 'debug') { DEBUG = !!d.on; applyDbg(); }
+      });
+    } catch (e) { dlog('ERR addCustomMessageListener: ' + (e && e.message || e)); }
+
+    var options = new cast.framework.CastReceiverOptions();
+    if (SHAKA === 'pinned') {
+      options.useShakaForHls = true;
+      options.shakaVersion = '4.15.56';
+    }
+    options.customNamespaces = {}; options.customNamespaces[NS] = SYS.MessageType.JSON;
+    on(context, SYS.EventType.READY, function () {
+      var rv = readShakaVer();
+      showScreen('idle'); updatePill();
+      dlog('READY ok (shaka=' + SHAKA + (rv ? ' v' + rv : ' v? ' + shakaProbe) + ')'); probeCaps();
+    }, 'READY');
+    dlog('calling context.start (shaka=' + SHAKA + ')…');
+    try { context.start(options); dlog('context.start returned'); }
+    catch (e) { DEBUG = true; applyDbg(); dlog('ERR context.start: ' + (e && e.message || e)); showScreen('error'); }
+  })();
+  </script>
+</body>
+</html>
